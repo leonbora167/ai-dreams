@@ -1,0 +1,10 @@
+torch==2.10.0+cu130
+torchvision==0.25.0+cu130
+torchaudio==2.10.0+cpu
+numpy==2.2.6
+pandas==2.3.3
+PyYAML==6.0.3
+tqdm==4.67.3
+opencv-python==4.13.0
+scikit-learn==1.7.2
+av==16.1.0

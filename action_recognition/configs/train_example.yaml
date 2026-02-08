@@ -1,0 +1,28 @@
+data:
+  manifest_path: "data_training/manifest.csv"
+  aux_dir: "data_training/aux"
+  class_names: []
+  split_train: "train"
+  split_val: "val"
+  frames_per_clip: 20
+  image_size: 224
+  num_workers: 4
+
+train:
+  batch_size: 1
+  grad_accum_steps: 2
+  epochs: 10
+  lr: 0.0003
+  weight_decay: 0.0001
+  mixed_precision: true
+  grad_clip_norm: 1.0
+  gpu_memory_fraction: 0.95
+  skip_oom_batches: true
+  seed: 42
+  output_dir: "runs"
+
+model:
+  num_classes: 0
+  dropout: 0.2
+  flow_weight: 1.0
+  crowd_weight: 1.0

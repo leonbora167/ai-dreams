@@ -1,0 +1,107 @@
+{
+  "project": {
+    "name": "action_recognition",
+    "purpose": "Crowd action/violence recognition using RGB + flow + crowd-density multi-modal fusion",
+    "last_updated_utc_date": "2026-02-08"
+  },
+  "high_level_architecture": {
+    "rgb_branch": "Video Swin Transformer (swin3d_t)",
+    "flow_branch": "RAFT optical flow + lightweight 3D encoder",
+    "crowd_branch": "FasterRCNN person detections -> density maps + lightweight 3D encoder",
+    "fusion": "Concatenate branch features -> MLP classifier"
+  },
+  "data_layout_contract": {
+    "train_val_layout": "data_training/train/<class_name>/*.mp4 and data_training/val/<class_name>/*.mp4",
+    "class_resolution": "Dynamic from labels/folders; no fixed class list required",
+    "manifest": "data_training/manifest.csv",
+    "aux_features": "data_training/aux/*.npz"
+  },
+  "entrypoints": {
+    "dataset_bootstrap": "python data.py",
+    "full_pipeline": "python scripts/run_training.py",
+    "train_only": "python -m crowd_action.train --config configs/train_example.yaml",
+    "evaluate": "python -m crowd_action.evaluate --config configs/train_example.yaml --checkpoint runs/<timestamp>/best.pt",
+    "inference_video": "python test.py --video <input.mp4> --checkpoint runs/<timestamp>/best.pt --output <output.mp4> --config configs/train_example.yaml",
+    "inference_shell_wrapper": "./run_inference.sh <video> <checkpoint> <output> [config] [stride]"
+  },
+  "important_files": {
+    "readme": "README.md",
+    "dataset_downloader": "data.py",
+    "full_pipeline_runner": "scripts/run_training.py",
+    "manifest_builder": "scripts/build_manifest.py",
+    "dataset_preparer": "scripts/prepare_data_training.py",
+    "aux_precompute": "scripts/precompute_aux.py",
+    "training": "src/crowd_action/train.py",
+    "evaluation": "src/crowd_action/evaluate.py",
+    "inference": "test.py",
+    "model": "src/crowd_action/models/multimodal_swin.py",
+    "config": "configs/train_example.yaml"
+  },
+  "training_outputs": {
+    "root": "runs/",
+    "per_run_dir": "runs/<timestamp>/",
+    "files": [
+      "best.pt",
+      "last.pt",
+      "metrics.csv",
+      "summary.json"
+    ]
+  },
+  "inference_behavior": {
+    "overlay": "Top-left green text: '<predicted_label> (<confidence>)'",
+    "output_format": "mp4",
+    "progress_bars": [
+      "inferring clips",
+      "writing output"
+    ],
+    "class_name_resolution_order": [
+      "--class-names argument",
+      "runs/<timestamp>/summary.json",
+      "config class_names",
+      "manifest label inference"
+    ]
+  },
+  "gpu_memory_controls": {
+    "implemented_in": "src/crowd_action/train.py",
+    "config_fields": {
+      "gpu_memory_fraction": 0.95,
+      "batch_size": 1,
+      "grad_accum_steps": 2,
+      "skip_oom_batches": true
+    },
+    "note": "Reduces OOM likelihood but cannot guarantee strict hard-limit behavior due to allocator/runtime details."
+  },
+  "git_hygiene": {
+    "ignored_paths": [
+      "data/",
+      "data_training/",
+      "runs/",
+      "outputs/",
+      "*.log"
+    ],
+    "policy": "Repository intended to exclude large data/model artifacts."
+  },
+  "major_changes_made_in_session": [
+    "Converted class handling to dynamic label inference.",
+    "Aligned workflow around data_training/train|val structure.",
+    "Added full pipeline script (manifest -> precompute -> train).",
+    "Added per-run artifact persistence under runs/<timestamp>/.",
+    "Added training tqdm progress and metric/summary saving.",
+    "Added memory/OOM mitigation settings for CUDA training.",
+    "Added standalone video inference script (test.py) and shell wrapper.",
+    "Expanded README with architecture, workflow, results template, and AI provenance.",
+    "Added dataset bootstrap script (data.py) and updated .gitignore."
+  ],
+  "known_operational_notes": [
+    "Use conda env 'video-act' in this workspace.",
+    "Precompute stage can be expensive; cached aux files significantly reduce repeated run time.",
+    "run_training.py now resolves absolute project paths to avoid writing artifacts outside repo.",
+    "If classes change across datasets, ensure checkpoint and class names are from the same run."
+  ],
+  "recommended_resume_prompt_template": "Load SESSION_CONTEXT.json and summarize current architecture, run commands, and pending TODOs. Then continue from the latest run under runs/<timestamp>.",
+  "pending_todos": [
+    "Optionally add plotting utility for metrics.csv -> curves image.",
+    "Optionally add confusion matrix generation script and export to assets/results/.",
+    "Optionally add streaming/real-time inference mode."
+  ]
+}
