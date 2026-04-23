@@ -16,11 +16,16 @@ RANDOM_SEED = 42
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-DATA_ROOT = Path(".")
-REF_DIR = DATA_ROOT / "references"
+PROJECT_ROOT = Path(".")
+DATA_ROOT = PROJECT_ROOT / "data"
+REF_DIR = PROJECT_ROOT / "references"
 REF_DIR.mkdir(exist_ok=True)
 
-MACHINE_TYPES = ["fan", "pump", "slider"]
+MACHINE_TYPES = sorted(
+    child.name
+    for child in DATA_ROOT.iterdir()
+    if child.is_dir() and any(child.glob("id_*/*/*.wav"))
+)
 CHANNEL_TO_ANALYZE = 0
 
 sns.set_theme(style="whitegrid", context="talk")
@@ -211,7 +216,7 @@ sampled_df = (
 
 feature_rows = []
 for row in sampled_df.itertuples(index=False):
-    features = basic_signal_features(Path(row.path))
+    features = basic_signal_features(DATA_ROOT / row.path)
     features.update(
         {
             "path": row.path,
@@ -303,7 +308,7 @@ if len(example_df) == 1:
     axes = np.array([axes])
 
 for i, row in enumerate(example_df.itertuples(index=False)):
-    sample_rate, x = load_first_channel(Path(row.path))
+    sample_rate, x = load_first_channel(DATA_ROOT / row.path)
     t = np.arange(len(x)) / sample_rate
     freqs, times, sxx = signal.spectrogram(x, fs=sample_rate, nperseg=1024, noverlap=512)
     sxx_db = 10 * np.log10(sxx + 1e-10)
@@ -320,4 +325,3 @@ for i, row in enumerate(example_df.itertuples(index=False)):
     fig.colorbar(im, ax=axes[i, 1], fraction=0.046, pad=0.04)
 
 savefig("waveform_and_spectrogram_examples.png")
-

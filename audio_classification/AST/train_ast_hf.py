@@ -11,12 +11,15 @@ from training_common import train_model
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA_ROOT = PROJECT_ROOT / "data"
+ARTIFACTS_DIR = Path(__file__).resolve().parent / "artifacts"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a Hugging Face AST model on log-mel spectrograms.")
-    parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT)
+    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--logs-dir", type=Path, default=PROJECT_ROOT / "logs")
+    parser.add_argument("--output-dir", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--model-name", type=str, default="MIT/ast-finetuned-audioset-10-10-0.4593")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=2)
@@ -75,10 +78,15 @@ def make_model_builder(model_name: str):
 
 def main() -> None:
     args = parse_args()
+
+    def save_model_artifact(model, artifact_dir: Path, label_names, args) -> None:
+        model.save_pretrained(artifact_dir / "hf_model")
+
     train_model(
         model_name="ast_hf",
         model_builder=make_model_builder(args.model_name),
         feature_adapter=make_feature_adapter(args.ast_max_length),
+        model_saver=save_model_artifact,
         args=args,
     )
 

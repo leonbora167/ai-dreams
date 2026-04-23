@@ -1,0 +1,8 @@
+[2026-04-23 02:43:27] device=cuda
+[2026-04-23 02:43:27] gpu_name=NVIDIA GeForce RTX 4060
+[2026-04-23 02:43:27] dataset_summary total=13849 train=11079 val=2770 label_mode=machine_status num_classes=6
+[2026-04-23 02:43:27] labels=abnormal_fan | abnormal_pump | abnormal_slider | normal_fan | normal_pump | normal_slider
+[2026-04-23 02:43:27] train_label_counts abnormal_fan=1180 abnormal_pump=365 abnormal_slider=712 normal_fan=3260 normal_pump=3000 normal_slider=2562
+[2026-04-23 02:43:27] val_label_counts abnormal_fan=295 abnormal_pump=91 abnormal_slider=178 normal_fan=815 normal_pump=749 normal_slider=642
+[2026-04-23 02:43:27] training_config epochs=2 batch_size=2 lr=2e-05 n_mels=128 n_fft=1024 hop_length=160 num_workers=0 dry_run=False
+[2026-04-23 02:43:29] model=ast_hf num_parameters=86193414

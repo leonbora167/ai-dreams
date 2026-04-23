@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import random
 import time
@@ -36,6 +37,16 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
+def discover_machine_types(data_root: Path) -> list[str]:
+    machine_types: list[str] = []
+    for child in sorted(data_root.iterdir()):
+        if not child.is_dir():
+            continue
+        if any(child.glob("id_*/*/*.wav")):
+            machine_types.append(child.name)
+    return machine_types
+
+
 def make_label_name(machine_type: str, machine_id: str, status: str, label_mode: str) -> str:
     if label_mode == "status":
         return status
@@ -47,7 +58,7 @@ def make_label_name(machine_type: str, machine_id: str, status: str, label_mode:
 
 
 def scan_examples(data_root: Path, label_mode: str) -> tuple[list[Example], list[str]]:
-    machine_types = ["fan", "pump", "slider"]
+    machine_types = discover_machine_types(data_root)
     pending: list[dict[str, str | Path]] = []
     label_names: set[str] = set()
 
@@ -392,6 +403,7 @@ def train_model(
     model_name: str,
     model_builder: Callable[[int, list[str]], nn.Module],
     feature_adapter: Callable[[torch.Tensor], torch.Tensor],
+    model_saver: Callable[[nn.Module, Path, list[str], object], None] | None = None,
     args,
 ) -> Path:
     set_seed(args.seed)
@@ -500,6 +512,29 @@ def train_model(
             break
 
     logger.log(f"best_val_acc={best_val_acc:.4f}")
+    if hasattr(args, "output_dir"):
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        artifact_dir = args.output_dir / f"{model_name}_{timestamp}"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "model_name": model_name,
+            "label_names": label_names,
+            "label_mode": args.label_mode,
+            "sample_rate": args.sample_rate,
+            "duration_seconds": args.duration_seconds,
+            "n_fft": args.n_fft,
+            "hop_length": args.hop_length,
+            "win_length": args.win_length,
+            "n_mels": args.n_mels,
+            "f_min": args.f_min,
+            "f_max": args.f_max,
+            "ast_max_length": getattr(args, "ast_max_length", None),
+            "hf_model_name": getattr(args, "model_name", None),
+        }
+        (artifact_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        if model_saver is not None:
+            model_saver(model, artifact_dir, label_names, args)
+        logger.log(f"artifact_dir={artifact_dir}")
     logger.log(f"log_file={log_path}")
     logger.close()
     return log_path

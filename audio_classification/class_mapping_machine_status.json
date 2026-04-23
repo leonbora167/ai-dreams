@@ -1,0 +1,21 @@
+{
+  "data_root": "C:\\Projects\\ai-dreams\\audio_classification\\data",
+  "label_mode": "machine_status",
+  "num_classes": 6,
+  "class_to_index": {
+    "abnormal_fan": 0,
+    "abnormal_pump": 1,
+    "abnormal_slider": 2,
+    "normal_fan": 3,
+    "normal_pump": 4,
+    "normal_slider": 5
+  },
+  "index_to_class": {
+    "0": "abnormal_fan",
+    "1": "abnormal_pump",
+    "2": "abnormal_slider",
+    "3": "normal_fan",
+    "4": "normal_pump",
+    "5": "normal_slider"
+  }
+}

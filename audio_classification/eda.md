@@ -3,6 +3,7 @@
 This note explains what we learned from the first pass of exploratory data analysis on the local MIMII subset in this project.
 
 Current local scope:
+- Dataset root: `data/`
 - Machine types available: `fan`, `pump`, `slider`
 - Model IDs available: `id_00`, `id_02`, `id_04`, `id_06`
 - Total files: `13,849`
@@ -10,7 +11,7 @@ Current local scope:
 - Audio format: `16 kHz`, `16-bit`, `8 channels`
 - Total audio time: about `38.5 hours`
 
-The official MIMII release describes this as a dataset for industrial machine monitoring with normal and anomalous operating sounds, recorded with added real factory noise. The public release contains four machine types in total, but our local copy currently includes three of them.
+The official MIMII release describes this as a dataset for industrial machine monitoring with normal and anomalous operating sounds, recorded with added real factory noise. The public release contains four machine types in total, but our local copy under `data/` currently includes three of them.
 
 Sources:
 - MIMII Zenodo page: https://zenodo.org/records/3384388
@@ -101,11 +102,11 @@ Practical interpretation:
 - Lower zero-crossing rate often means the waveform is smoother or more low-frequency dominated.
 
 CV analogy:
-- It is loosely like measuring how rapidly a 1D signal changes sign, somewhat similar in spirit to how “edgy” or high-frequency a texture is.
+- It is loosely like measuring how rapidly a 1D signal changes sign, somewhat similar in spirit to how "edgy" or high-frequency a texture is.
 
 ### Spectral centroid
 
-This tells us where the “center of mass” of the frequency content sits.
+This tells us where the "center of mass" of the frequency content sits.
 
 Practical interpretation:
 - Higher spectral centroid means brighter or sharper sound with more high-frequency emphasis.
@@ -300,4 +301,3 @@ Saved reference images:
 - `references/signal_feature_boxplots.png`
 - `references/sample_feature_scatter.png`
 - `references/waveform_and_spectrogram_examples.png`
-
