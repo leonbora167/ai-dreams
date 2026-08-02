@@ -1,0 +1,7 @@
+path: ./data/hazmat-demo
+train: images/train
+val: images/val
+names:
+  0: hazmat suit
+  1: person
+prompt_template: "a photo of a {}"

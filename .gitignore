@@ -2,3 +2,6 @@
 /audio_classification/pump
 /audio_classification/slider
 /audio_classification/data
+/owl-vit-training/__pycache__
+/owl-vit-training/artifacts/owlvit-coco8
+/owl-vit-training/src/__pycache__
