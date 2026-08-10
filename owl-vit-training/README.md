@@ -74,6 +74,9 @@ The end-to-end flow is:
 - [validate_yolo_dataset.py](C:/Projects/ai-dreams/owl-vit-training/validate_yolo_dataset.py): checks that a dataset is structurally compatible before training
 - [infer_owlvit.py](C:/Projects/ai-dreams/owl-vit-training/infer_owlvit.py): runs inference on one image
 - [visualize_val_predictions.py](C:/Projects/ai-dreams/owl-vit-training/visualize_val_predictions.py): saves validation images with predicted and ground-truth boxes
+- [infer_owlvit_image_guided.py](C:/Projects/ai-dreams/owl-vit-training/infer_owlvit_image_guided.py): one-shot style image-conditioned detection
+- [visualize_owlvit_image_guided.py](C:/Projects/ai-dreams/owl-vit-training/visualize_owlvit_image_guided.py): saves image-guided detections with the query region highlighted
+- [batch_visualize_owlvit_image_guided.py](C:/Projects/ai-dreams/owl-vit-training/batch_visualize_owlvit_image_guided.py): runs image-guided detection on every image in a folder and saves rendered outputs
 - [src/owlvit_dataset.py](C:/Projects/ai-dreams/owl-vit-training/src/owlvit_dataset.py): dataset config loader, prompt builder, YOLO reader, and custom loss
 - [example-hazmat-dataset.yaml](C:/Projects/ai-dreams/owl-vit-training/example-hazmat-dataset.yaml): example config for a custom dataset
 
@@ -229,6 +232,51 @@ conda run -n pyt-dl python infer_owlvit.py `
 ```
 
 If you omit `--labels`, the script will use the class names stored inside the checkpoint.
+
+## Image-Guided Inference
+
+OWL-ViT also supports image-conditioned detection, where you provide a visual exemplar instead of text.
+
+Use a separate cropped query image:
+
+```powershell
+conda run -n pyt-dl python infer_owlvit_image_guided.py `
+  --checkpoint artifacts/owlvit-yolo/best.pt `
+  --image path\to\target.jpg `
+  --query-image path\to\query_crop.jpg
+```
+
+Or crop the exemplar directly from an image using coordinates:
+
+```powershell
+conda run -n pyt-dl python infer_owlvit_image_guided.py `
+  --checkpoint artifacts/owlvit-yolo/best.pt `
+  --image path\to\target.jpg `
+  --query-source-image path\to\reference.jpg `
+  --query-box 120 80 260 420
+```
+
+To save a rendered visualization:
+
+```powershell
+conda run -n pyt-dl python visualize_owlvit_image_guided.py `
+  --checkpoint artifacts/owlvit-yolo/best.pt `
+  --image path\to\target.jpg `
+  --query-source-image path\to\reference.jpg `
+  --query-box 120 80 260 420 `
+  --output-image artifacts/owlvit-yolo/image-guided-demo.jpg
+```
+
+To run the same image-guided query over a whole folder and save output images:
+
+```powershell
+conda run -n pyt-dl python batch_visualize_owlvit_image_guided.py `
+  --checkpoint artifacts/owlvit-yolo/best.pt `
+  --input-dir path\to\input-folder `
+  --output-dir path\to\output-folder `
+  --query-source-image path\to\reference.jpg `
+  --query-box 120 80 260 420
+```
 
 ## Visualization
 
