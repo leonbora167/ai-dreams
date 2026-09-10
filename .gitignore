@@ -5,3 +5,8 @@
 /owl-vit-training/__pycache__
 /owl-vit-training/artifacts/owlvit-coco8
 /owl-vit-training/src/__pycache__
+/multi-cam-track/data
+/multi-cam-track/outputs
+/owl-vit-training/test_images
+/owl-vit-training/output_images
+/multi-cam-track/src/__pycache__

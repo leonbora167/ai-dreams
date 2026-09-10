@@ -1,0 +1,32 @@
+system:
+  video_dir: ./data/videos
+  output_dir: ./outputs
+  display_resolution: [1280, 720]
+cameras:
+  auto_discover: true
+  topology:
+    adjacency: {cam01: [cam02], cam02: [cam01, cam03], cam03: [cam02]}
+    max_transition_seconds: 30
+    min_transition_seconds: 1
+detector:
+  model: yolo11n.pt
+  device: cuda
+  confidence: 0.35
+  classes: [0]
+tracker:
+  type: bytetrack
+  track_high_thresh: 0.5
+  track_low_thresh: 0.1
+  new_track_thresh: 0.6
+  track_buffer: 30
+features:
+  reid: {enabled: true, model: osnet_x1_0, input_size: [256, 128], weight: 0.6}
+  color: {enabled: true, weight: 0.15}
+  motion: {enabled: false, weight: 0.1}
+  temporal: {enabled: true, weight: 0.15}
+  topology: {enabled: true}
+  quality: {enabled: true, min_confidence: 0.5, min_crop_pixels: [40, 90]}
+  geometry: {enabled: false}
+  pose: {enabled: false}
+association: {similarity_threshold: 0.75, clustering_method: average}
+output: {video: outputs/visualization/multi_camera.mp4, save_tracklets: true}

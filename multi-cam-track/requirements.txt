@@ -1,0 +1,39 @@
+# PyTorch is intentionally excluded from this file.
+# torchreid depends on torch/torchvision, but you should install them
+# separately first, matched to your CUDA version, e.g.:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu132
+# See https://pytorch.org/get-started/locally/ for the right command for your system.
+# Install torch BEFORE the packages below.
+
+# --- Detection ---
+ultralytics>=8.3.0
+
+# --- Single-camera tracking + annotation ---
+supervision>=0.24.0
+
+# --- ReID (OSNet) ---
+# NOT listed here on purpose. torchreid's setup.py imports numpy at build
+# time without declaring it as a build dependency, so pip's isolated build
+# env fails even if numpy is installed in your environment. Install it
+# separately, after this file, with build isolation turned off:
+#   pip install --no-build-isolation git+https://github.com/KaiyangZhou/deep-person-reid.git
+# (see install.sh / install.bat)
+
+# --- Cross-camera vector similarity search ---
+faiss-cpu>=1.8.0
+
+# --- Clustering (hierarchical linkage for global ID assignment) ---
+scipy>=1.11.0
+
+# --- Video I/O, cropping, grid stitching ---
+opencv-python>=4.10.0
+
+# --- Numerical ops ---
+numpy>=1.26.0
+
+# --- Config parsing ---
+pyyaml>=6.0
+
+# --- Dataset download helper (progress bars, small file downloads) ---
+requests>=2.31.0
+tqdm>=4.66.0
