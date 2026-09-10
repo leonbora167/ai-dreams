@@ -1,0 +1,64 @@
+# EPFL Terrace 1 multi-camera outdoor configuration.
+# 4 cameras filming an outdoor terrace with up to 7 people walking and crossing.
+# Configuration: topology disabled (any camera can match any camera), 1-minute temporal window.
+
+system:
+  video_dir: ./data/epfl_terrace/videos
+  output_dir: ./outputs/epfl_terrace1_v1
+  display_resolution: [1280, 720]
+
+cameras:
+  auto_discover: true
+  topology:
+    adjacency: {}
+    min_transition_seconds: 0
+    max_transition_seconds: 60       # 1-minute temporal limit
+
+detector:
+  model: yolo11n.pt
+  device: cuda
+  confidence: 0.35
+  classes: [0]
+
+tracker:
+  type: bytetrack
+  track_high_thresh: 0.5
+  track_low_thresh: 0.1
+  new_track_thresh: 0.6
+  track_buffer: 30
+
+features:
+  reid:
+    enabled: true
+    model: osnet_ain_x1_0
+    weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth
+    input_size: [256, 128]
+    weight: 0.9
+  color:
+    enabled: true
+    weight: 0.1
+  motion:
+    enabled: false
+    weight: 0.0
+  temporal:
+    enabled: true                    # Enforces the 60-second time limit
+    weight: 0.0
+  topology:
+    enabled: false                   # Disabled: no camera graph / adjacency restrictions
+  quality:
+    enabled: true
+    min_confidence: 0.5
+    min_crop_pixels: [40, 90]
+  geometry:
+    enabled: false
+  pose:
+    enabled: false
+
+association:
+  similarity_threshold: 0.70
+  clustering_method: average
+
+output:
+  video: outputs/epfl_terrace1_v1/visualization/multi_camera.mp4
+  save_tracklets: true
+
