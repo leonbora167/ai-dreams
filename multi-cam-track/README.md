@@ -63,5 +63,14 @@ The actual inference/render command is intentionally left for the operator:
 python run.py --config configs/poc.yaml --videos ./data/videos
 ```
 
+For the recommended ReID checkpoint, install the small downloader dependency
+and run this explicitly before using `configs/epfl_4p.yaml`:
+
+```bash
+conda activate tracker-env
+pip install gdown
+python scripts/download_reid_weights.py
+```
+
 Toggle feature modules only in `configs/poc.yaml`. ReID and video decoding are
 loaded lazily; `--dry-run` does not load model weights.

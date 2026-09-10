@@ -38,6 +38,11 @@ Global association is **not** performed every 500 frames. Messages such as
 Association happens whenever a local tracklet becomes inactive, and again for
 any tracklets still active when a camera stream ends.
 
+Those early assignments are provisional. When all MP4 streams finish, a final
+reconciliation pass compares the complete collection of tracklets, keeps
+strong cross-camera matches first, prevents overlapping tracks from the same
+camera sharing an identity, and writes corrected IDs back to the saved files.
+
 ## Technical flow
 
 ```text
@@ -82,6 +87,11 @@ IDs and bounding boxes for each local track.
 `motion` vectors, and metadata fields for camera ID, local track ID, and global
 ID. The `reid` array and its metadata are the fields a future vector database
 would normally store.
+
+For better accuracy, `features.reid.weight_path` may point to a dedicated
+Torchreid person-ReID checkpoint. If it is `null`, the code uses automatically
+downloaded ImageNet backbone weights, which are suitable for a POC but less
+discriminative than a person-ReID checkpoint.
 
 ## Visualization layout
 

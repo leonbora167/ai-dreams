@@ -15,6 +15,7 @@ from tqdm import tqdm
 from .tracklets import Tracklet, save_tracklets
 from .features import FeatureManager
 from .visualization import render
+from .association import batch_associate
 
 
 class StreamingPipeline:
@@ -30,10 +31,21 @@ class StreamingPipeline:
 
     def run(self):
         from ultralytics import YOLO
+        import supervision as sv
         names = list(self.videos)
         caps = {c: cv2.VideoCapture(str(self.videos[c])) for c in names}
-        models = {c: YOLO(self.cfg['detector']['model']) for c in names}
+        # One detector is shared sequentially; each camera owns persistent
+        # ByteTrack state. Calling YOLO.track on individual ndarray frames does
+        # not reliably preserve independent tracker state per camera.
+        detector = YOLO(self.cfg['detector']['model'])
         fps = {c: (caps[c].get(cv2.CAP_PROP_FPS) or 30.0) for c in names}
+        trackers = {
+            c: sv.ByteTrack(
+                track_activation_threshold=self.cfg['tracker']['track_high_thresh'],
+                lost_track_buffer=int(self.cfg['tracker']['track_buffer']),
+                frame_rate=int(round(fps[c])),
+            ) for c in names
+        }
         active = {c: {} for c in names}
         finished = []
         descriptors = []
@@ -59,13 +71,26 @@ class StreamingPipeline:
                         continue
                     progress.update(1)
                     current = frame_no[camera]; frame_no[camera] += 1
-                    result = models[camera].track(
-                        source=frame, persist=True, tracker='bytetrack.yaml',
-                        conf=self.cfg['detector']['confidence'], classes=self.cfg['detector']['classes'],
+                    result = detector.predict(
+                        source=frame, conf=self.cfg['detector']['confidence'],
+                        classes=self.cfg['detector']['classes'],
                         device=self.cfg['detector']['device'], verbose=False)[0]
+                    if result.boxes is None or len(result.boxes) == 0:
+                        detections = sv.Detections(
+                            xyxy=np.empty((0, 4), dtype=np.float32),
+                            confidence=np.empty((0,), dtype=np.float32),
+                            class_id=np.empty((0,), dtype=int),
+                        )
+                    else:
+                        detections = sv.Detections(
+                            xyxy=result.boxes.xyxy.cpu().numpy(),
+                            confidence=result.boxes.conf.cpu().numpy(),
+                            class_id=result.boxes.cls.int().cpu().numpy(),
+                        )
+                    tracked = trackers[camera].update_with_detections(detections)
                     seen = set()
-                    if result.boxes is not None and result.boxes.id is not None:
-                        for box, tid, conf in zip(result.boxes.xyxy.cpu().tolist(), result.boxes.id.int().cpu().tolist(), result.boxes.conf.cpu().tolist()):
+                    if tracked.tracker_id is not None:
+                        for box, tid, conf in zip(tracked.xyxy.tolist(), tracked.tracker_id.tolist(), tracked.confidence.tolist()):
                             tid = int(tid); seen.add(tid)
                             item = active[camera].setdefault(tid, _WorkingTrack(camera, tid, fps[camera], str(self.videos[camera])))
                             item.add(current, box, float(conf), frame)
@@ -88,6 +113,14 @@ class StreamingPipeline:
             progress.close()
         for camera in names:
             self._finalize_all(camera, active[camera], manager, finished, descriptors, gallery, mapping, fps[camera])
+        # Replace provisional greedy IDs with a conservative all-tracklet pass.
+        mapping = batch_associate(finished, descriptors, self.cfg)
+        for track in finished:
+            track.global_id = mapping[(track.camera_id, track.local_id)]
+            feature_path = self.feature_dir / f'{track.camera_id}_{track.local_id}.npz'
+            if feature_path.exists():
+                data = dict(np.load(feature_path, allow_pickle=False)); data['global_id'] = np.asarray(track.global_id)
+                np.savez_compressed(feature_path, **data)
         self._renumber_ids_by_first_appearance(finished, mapping)
         for camera in names:
             save_tracklets(self.track_dir / f'{camera}.json', [t for t in finished if t.camera_id == camera])

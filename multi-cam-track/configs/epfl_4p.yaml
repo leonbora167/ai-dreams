@@ -3,7 +3,7 @@
 # is disabled. Use configs/poc.yaml for non-overlapping camera experiments.
 system:
   video_dir: ./data/videos
-  output_dir: ./outputs/epfl_4p
+  output_dir: ./outputs/epfl_4p_v2
   display_resolution: [1280, 720]
 cameras:
   auto_discover: true
@@ -11,7 +11,7 @@ cameras:
 detector: {model: yolo11n.pt, device: cuda, confidence: 0.35, classes: [0]}
 tracker: {type: bytetrack, track_high_thresh: 0.5, track_low_thresh: 0.1, new_track_thresh: 0.6, track_buffer: 30}
 features:
-  reid: {enabled: true, model: osnet_x1_0, input_size: [256, 128], weight: 0.9}
+  reid: {enabled: true, model: osnet_ain_x1_0, weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth, input_size: [256, 128], weight: 0.9}
   color: {enabled: true, weight: 0.1}
   motion: {enabled: false, weight: 0.0}
   temporal: {enabled: false, weight: 0.0}
@@ -20,4 +20,4 @@ features:
   geometry: {enabled: false}
   pose: {enabled: false}
 association: {similarity_threshold: 0.70, clustering_method: average}
-output: {video: outputs/epfl_4p/visualization/multi_camera.mp4, save_tracklets: true}
+output: {video: outputs/epfl_4p_v2/visualization/multi_camera.mp4, save_tracklets: true}

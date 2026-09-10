@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+from pathlib import Path
 
 
 def _crop(frame, box):
@@ -13,7 +14,17 @@ class FeatureManager:
         self.reid_model = None
         if 'reid' in self.enabled:
             import torchreid
-            self.reid_model = torchreid.models.build_model(name=self.enabled['reid'].get('model', 'osnet_x1_0'), num_classes=1, pretrained=True)
+            reid_cfg = self.enabled['reid']
+            weight_path = reid_cfg.get('weight_path')
+            if weight_path and not Path(weight_path).exists():
+                raise FileNotFoundError(
+                    f'ReID checkpoint not found: {weight_path}. '
+                    'Run: python scripts/download_reid_weights.py')
+            self.reid_model = torchreid.models.build_model(
+                name=reid_cfg.get('model', 'osnet_x1_0'), num_classes=1,
+                pretrained=not bool(weight_path))
+            if weight_path:
+                torchreid.utils.load_pretrained_weights(self.reid_model, weight_path)
             self.reid_model.eval()
 
     def extract(self, track):
