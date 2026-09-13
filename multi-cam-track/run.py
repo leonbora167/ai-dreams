@@ -21,6 +21,7 @@ def main():
     def log(message):
         if not args.quiet: print(f'[{datetime.now():%H:%M:%S}] {message}', flush=True)
     log(f'Loaded config: {args.config}')
+    log(f'Compute device: {cfg["detector"].get("device_name", cfg["detector"]["device"])} ({cfg["detector"]["device"]})')
     log(f'Discovered {len(videos)} camera video(s) in {cfg["system"]["video_dir"]}')
     if args.dry_run:
         print_resolved_config(cfg, videos)

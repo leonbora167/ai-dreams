@@ -3,6 +3,9 @@ import numpy as np
 from pathlib import Path
 
 
+from .device import resolve_device
+
+
 def _crop(frame, box):
     h, w = frame.shape[:2]; x1, y1, x2, y2 = map(int, box)
     return frame[max(0,y1):min(h,y2), max(0,x1):min(w,x2)]
@@ -11,6 +14,7 @@ def _crop(frame, box):
 class FeatureManager:
     def __init__(self, cfg):
         self.cfg = cfg; self.enabled = {k: v for k, v in cfg['features'].items() if v.get('enabled', False)}
+        self.device = cfg.get('detector', {}).get('device') or resolve_device('auto')
         self.reid_model = None
         if 'reid' in self.enabled:
             import torchreid
@@ -25,6 +29,7 @@ class FeatureManager:
                 pretrained=not bool(weight_path))
             if weight_path:
                 torchreid.utils.load_pretrained_weights(self.reid_model, weight_path)
+            self.reid_model.to(self.device)
             self.reid_model.eval()
 
     def extract(self, track):
@@ -75,7 +80,9 @@ class FeatureManager:
         for crop in crops:
             image = cv2.resize(crop, (int(size[1]), int(size[0])))[:,:,::-1].transpose(2,0,1).astype(np.float32) / 255.
             batch.append((image - mean) / std)
-        with torch.no_grad(): v = self.reid_model(torch.tensor(np.asarray(batch), dtype=torch.float32)).cpu().numpy()
+        with torch.no_grad():
+            batch_tensor = torch.tensor(np.asarray(batch), dtype=torch.float32, device=self.device)
+            v = self.reid_model(batch_tensor).cpu().numpy()
         v = np.mean(v, axis=0); return v / (np.linalg.norm(v) + 1e-8)
 
     @staticmethod

@@ -41,12 +41,37 @@ def download_file(url: str, dest_path: Path):
 
 
 def convert_avi_to_mp4(source_avi: Path, target_mp4: Path):
-    """Convert AVI to MP4 using ffmpeg for best codec support."""
-    if target_mp4.exists():
+    """Convert AVI to MP4 using OpenCV VideoWriter (with ffmpeg fallback)."""
+    if target_mp4.exists() and target_mp4.stat().st_size > 0:
         print(f"Video already exists: {target_mp4.name}")
         return
 
     target_mp4.parent.mkdir(parents=True, exist_ok=True)
+    import cv2
+    cap = cv2.VideoCapture(str(source_avi))
+    if cap.isOpened():
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        writer = cv2.VideoWriter(str(target_mp4), cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+        if writer.isOpened():
+            with tqdm(total=total_frames or None, unit='frame', desc=f"Converting {source_avi.name} -> {target_mp4.name}") as bar:
+                count = 0
+                while True:
+                    ok, frame = cap.read()
+                    if not ok:
+                        break
+                    writer.write(frame)
+                    count += 1
+                    bar.update(1)
+            cap.release()
+            writer.release()
+            if count > 0:
+                print(f"Successfully created: {target_mp4.name} ({count} frames @ {fps:.1f} fps)")
+                return
+
+    # Fallback to ffmpeg if installed
     print(f"Converting {source_avi.name} -> {target_mp4.name} via ffmpeg...")
     cmd = [
         'ffmpeg', '-y', '-i', str(source_avi),
@@ -55,7 +80,7 @@ def convert_avi_to_mp4(source_avi: Path, target_mp4: Path):
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
-        raise RuntimeError(f"FFmpeg conversion failed for {source_avi}:\n{res.stderr}")
+        raise RuntimeError(f"Conversion failed for {source_avi}:\n{res.stderr}")
     print(f"Successfully created: {target_mp4.name}")
 
 

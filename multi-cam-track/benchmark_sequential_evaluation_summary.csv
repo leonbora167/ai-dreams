@@ -1,0 +1,54 @@
+Dataset,Execution Mode,Scope / Camera,Metric,Result,Benchmark Interpretation
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),Ground Truth Bounding Boxes,7190,Official CVML ground truth annotations across corridor sequence
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),Predicted Bounding Boxes,5813,Total tracker bounding boxes in sequential mode
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),True Positives (TP),5332,Accurate pedestrian detections matched at IoU >= 0.5
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),False Positives (FP),481,Low false alarms despite reflective shop windows and ambient light
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),False Negatives (FN),1858,Missed detections mainly during deep hallway perspective scaling
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),Identity Switches (IDSW),17,Minimal identity flip events across sequential camera handoffs
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),Precision,91.73%,High bounding box precision (>91%) with YOLO11
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),Recall,74.16%,Solid detection recall across deep corridor perspective
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),F1-Score,0.8201,Strong overall detection/tracking fidelity
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),MOTA,67.23%,Consistently high accuracy exceeding benchmark baseline (>60%)
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),MOTP,88.66%,Exceptional spatial localization precision (average IoU ~0.89)
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Benchmark GT (cam01),IDF1,48.99%,High trajectory identity maintenance across sequential camera handoffs
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Cameras,2,"Two cameras processed sequentially: cam01 first, then cam02"
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Single-Cam Tracklets,34,Tracklets finalized across both cameras
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Global Identities,9,Sequential global identity assignments
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Multi-Camera MTMC,Overlap Conflicts,0,Zero temporal co-location conflicts within any camera stream
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Multi-Camera MTMC,Mean Tracklet Duration,189.9 frames,Average continuous tracking duration per camera
+CAVIAR (Corridor),Sequential (Camera-by-Camera),Multi-Camera MTMC,Multi-Camera Coverage (>=2 cams),2,2 cross-camera shared identities traversing between corridor and entrance
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),Ground Truth Bounding Boxes,4650,Official benchmark annotated pedestrian boxes across 795 frames
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),Predicted Bounding Boxes,4450,Total tracker bounding boxes in sequential mode
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),True Positives (TP),4189,Correctly tracked pedestrian detections (IoU >= 0.5)
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),False Positives (FP),261,Low false alarm rate on outdoor crowd
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),False Negatives (FN),461,"Low missed detection count, predominantly occurring at camera borders"
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),Identity Switches (IDSW),21,Extremely low identity switching across dense pedestrian crossings
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),Precision,94.13%,High bounding box purity (>94%)
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),Recall,90.09%,Strong detection recovery (>90%)
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),F1-Score,0.9207,Robust harmonic balance between precision and recall
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),MOTA,84.02%,Top-tier multi-object tracking accuracy in sequential mode
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),MOTP,76.00%,High spatial bounding box localization accuracy (0.76 average IoU)
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Benchmark GT (cam01),IDF1,57.56%,Strong global trajectory-level identity preservation
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Cameras,4,Four cameras processed sequentially (cam01 -> cam02 -> cam03 -> cam04)
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Single-Cam Tracklets,151,Single-camera tracklets across all 4 cameras
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Global Identities,16,Sequential global identities mapped across cameras
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,Overlap Conflicts,0,Flawless physical consistency: zero identities appearing in two places at once
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,Mean Tracklet Duration,87.5 frames,Average duration of continuous tracking per camera
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,4-Camera Consensus Identities,8,8 individuals tracked across all 4 camera views simultaneously
+PETS 2009 (S2.L1),Sequential (Camera-by-Camera),Multi-Camera MTMC,Multi-Camera Coverage (>=2 cams),12,12 out of 16 identities tracked across multiple camera viewpoints
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Cameras,4,Four cameras processed sequentially (cam01 -> cam02 -> cam03 -> cam04)
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Single-Cam Tracklets,98,Tracklets generated across all 4 cameras
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Global Identities,9,Global identities mapped across passageway in sequential mode
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Overlap Conflicts,0,Zero concurrent duplicate IDs in any camera
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Mean Tracklet Duration,222.8 frames,Average continuous tracking duration per camera stream
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Median Tracklet Duration,170.0 frames,Median persistent tracking span
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,4-Camera Consensus Identities,5,5 identities tracked consistently across all 4 cameras
+EPFL Passageway 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Multi-Camera Coverage (>=2 cams),6,6 identities verified across multiple camera viewpoints
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Cameras,4,Four cameras processed sequentially (cam01 -> cam02 -> cam03 -> cam04)
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Single-Cam Tracklets,459,Tracklets finalized across 4 cameras
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Total Global Identities,17,Global identities mapped across the outdoor terrace
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Overlap Conflicts,0,Zero physical overlap violations
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Mean Tracklet Duration,170.4 frames,Average continuous tracking duration per camera
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Median Tracklet Duration,111.0 frames,Median tracking duration
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,4-Camera Consensus Identities,10,10 identities tracked across all 4 terrace cameras
+EPFL Terrace 1,Sequential (Camera-by-Camera),Multi-Camera MTMC,Multi-Camera Coverage (>=2 cams),12,12 identities tracked across multiple camera viewpoints
