@@ -1,0 +1,25 @@
+# PETS 2009 (S2.L1) multi-camera outdoor benchmark configuration.
+# 4 synchronized cameras: cam01 (View 001), cam02 (View 005), cam03 (View 006), cam04 (View 008).
+system:
+  video_dir: ./data/pets2009/videos
+  output_dir: ./outputs/pets2009_v1
+  display_resolution: [1280, 720]
+cameras:
+  auto_discover: true
+  topology: {adjacency: {}, max_transition_seconds: 30, min_transition_seconds: 0}
+# Detector configuration: can specify 'name: rfdetr' (Apache 2.0) or 'name: yolo'
+detector: {name: rfdetr, model: rf-detr-nano, device: auto, confidence: 0.35, classes: [0]}
+# Tracker configuration: can specify 'name: bytetrack' or 'name: botsort'
+tracker: {name: bytetrack, track_high_thresh: 0.5, track_low_thresh: 0.1, new_track_thresh: 0.6, track_buffer: 30}
+features:
+  reid: {enabled: true, model: osnet_ain_x1_0, weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth, input_size: [256, 128], weight: 0.8}
+  color: {enabled: true, weight: 0.1}
+  motion: {enabled: false, weight: 0.0}
+  temporal: {enabled: false, weight: 0.0}
+  topology: {enabled: false}
+  quality: {enabled: true, min_confidence: 0.5, min_crop_pixels: [30, 60]}
+  geometry: {enabled: false}
+  pose: {enabled: true, model_type: yolo11n-pose, weight: 0.1}
+association: {similarity_threshold: 0.70, clustering_method: average}
+output: {video: outputs/pets2009_v1/visualization/multi_camera.mp4, save_tracklets: true}
+

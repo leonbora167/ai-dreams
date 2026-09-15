@@ -1,0 +1,122 @@
+# ==============================================================================
+# Custom Multi-Camera Tracking Configuration
+# ==============================================================================
+# Use this template to run the sequential multi-camera tracker on your own videos.
+#
+# Quick Run:
+#   python multi_track_proj/run.py --config multi_track_proj/configs/custom.yaml
+#
+# Or override directories directly from CLI:
+#   python multi_track_proj/run.py \
+#     --config multi_track_proj/configs/custom.yaml \
+#     --videos /path/to/my_videos \
+#     --output-dir /path/to/my_output
+# ==============================================================================
+
+system:
+  # Directory containing your camera video files (e.g. cam01.mp4, cam02.mp4, or .avi / .mkv)
+  # Videos are processed sequentially in alphabetical or arrival order.
+  video_dir: ./data/custom_videos
+  # Target directory where tracked per-camera videos, stitched review, and tracklets will be saved
+  output_dir: ./outputs/custom_run_v1
+  # Grid canvas resolution for the stitched review video [width, height]
+  display_resolution: [1280, 720]
+
+cameras:
+  # When true, automatically finds all video files in video_dir and sorts them (cam01, cam02, ...)
+  auto_discover: true
+  topology:
+    # Maximum physical transit time (seconds) allowed between camera handoffs.
+    # Tracklets older than this threshold will not be matched to newly entering individuals.
+    max_transition_seconds: 30
+    min_transition_seconds: 0
+
+# ------------------------------------------------------------------------------
+# 1. Detector Configuration
+# ------------------------------------------------------------------------------
+detector:
+  # Detector backend:
+  #   - 'rfdetr' : Roboflow Detection Transformer (Apache 2.0 open-source license) [RECOMMENDED]
+  #   - 'yolo'   : Ultralytics YOLO series (yolo11n.pt, yolov8n.pt, etc.)
+  #   - 'rtdetr' : Real-Time DETR (rtdetr-l.pt)
+  name: rfdetr
+  # Model checkpoint: 'rf-detr-nano', 'rf-detr-small', or path to .pt file
+  model: rf-detr-nano
+  # Detection confidence threshold (0.0 to 1.0)
+  confidence: 0.35
+  # Class filter: [0] for Person
+  classes: [0]
+  # Accelerator: 'auto' (detects Apple Silicon MPS, CUDA, or CPU), or explicitly 'mps'/'cuda'/'cpu'
+  device: auto
+
+# ------------------------------------------------------------------------------
+# 2. Single-Camera Tracker Configuration
+# ------------------------------------------------------------------------------
+tracker:
+  # Single-camera tracking backend:
+  #   - 'bytetrack' : Fast two-stage association using Kalman filter [RECOMMENDED]
+  #   - 'botsort'   : Camera motion-compensated tracking
+  name: bytetrack
+  track_high_thresh: 0.5   # Confidence to initiate / extend strong tracks
+  track_low_thresh: 0.1    # Confidence for recovering occluded secondary detections
+  new_track_thresh: 0.6    # Minimum score to initialize a brand-new tracklet
+  track_buffer: 30         # Frames to keep a lost tracklet alive before closing it (e.g. 1 sec at 30fps)
+
+# ------------------------------------------------------------------------------
+# 3. Multi-Modal Feature Extractors
+# ------------------------------------------------------------------------------
+features:
+  # Deep Metric Learning Appearance Extractor (OSNet)
+  reid:
+    enabled: true
+    model: osnet_ain_x1_0
+    weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth
+    input_size: [256, 128]
+    weight: 0.8            # Appearance similarity weight in multi-modal fusion
+
+  # Spatial Color Distribution Extractor (HSV Histogram)
+  color:
+    enabled: true
+    h_bins: 6
+    s_bins: 4
+    weight: 0.1            # Color similarity weight
+
+  # Pose & Viewpoint Extractor (Strategy 1: Heading Angle & Scale-Invariant Biometrics)
+  # Supported model_type: 'yolo11n-pose' (Ultralytics) or 'rtmpose' (OpenMMLab rtmlib)
+  pose:
+    enabled: true
+    model_type: yolo11n-pose
+    min_kpt_conf: 0.25
+    weight: 0.1            # Pose similarity weight
+
+  # Crop quality gating: skips blurry or tiny crops to prevent corrupting embeddings
+  quality:
+    enabled: true
+    min_confidence: 0.4
+    min_crop_pixels: [30, 60]   # [min_width, min_height] in pixels
+
+  # Placeholders for future modalities
+  motion:
+    enabled: false
+    weight: 0.0
+  temporal:
+    enabled: false
+    weight: 0.0
+
+# ------------------------------------------------------------------------------
+# 4. Cross-Camera Association
+# ------------------------------------------------------------------------------
+association:
+  # Multi-modal cosine similarity threshold to match tracklets to existing global IDs.
+  # If max similarity < threshold, a new global identity (G1, G2, ...) is minted.
+  # Recommended range: 0.65 - 0.75 (lower = more aggressive merging, higher = more distinct IDs)
+  similarity_threshold: 0.70
+  clustering_method: average
+
+# ------------------------------------------------------------------------------
+# 5. Output Settings
+# ------------------------------------------------------------------------------
+output:
+  video: outputs/custom_run_v1/visualization/multi_camera.mp4
+  save_tracklets: true     # Saves tracklets and reservoir crop embeddings as .npz
+

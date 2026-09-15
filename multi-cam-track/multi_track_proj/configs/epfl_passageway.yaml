@@ -1,0 +1,66 @@
+# EPFL Passageway 1 multi-camera indoor corridor configuration.
+# 4 cameras filming an underground train station passageway with pedestrians walking and crossing.
+system:
+  video_dir: ./data/epfl_passageway/videos
+  output_dir: ./outputs/epfl_passageway_v1
+  display_resolution: [1280, 720]
+
+cameras:
+  auto_discover: true
+  topology:
+    adjacency:
+      cam01: [cam02]
+      cam02: [cam01, cam03]
+      cam03: [cam02, cam04]
+      cam04: [cam03]
+    min_transition_seconds: 0
+    max_transition_seconds: 60
+
+detector:
+  model: yolo11n.pt
+  device: auto
+  confidence: 0.30
+  classes: [0]
+
+tracker:
+  type: bytetrack
+  track_high_thresh: 0.45
+  track_low_thresh: 0.1
+  new_track_thresh: 0.55
+  track_buffer: 35
+
+features:
+  reid:
+    enabled: true
+    model: osnet_ain_x1_0
+    weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth
+    input_size: [256, 128]
+    weight: 0.9
+  color:
+    enabled: true
+    weight: 0.1
+  motion:
+    enabled: false
+    weight: 0.0
+  temporal:
+    enabled: false
+    weight: 0.0
+  topology:
+    enabled: false
+  quality:
+    enabled: true
+    min_confidence: 0.4
+    min_crop_pixels: [20, 50]
+  geometry:
+    enabled: false
+  pose:
+    enabled: false
+
+association:
+  similarity_threshold: 0.68
+  clustering_method: average
+
+output:
+  video: outputs/epfl_passageway_v1/visualization/multi_camera.mp4
+  save_tracklets: true
+
