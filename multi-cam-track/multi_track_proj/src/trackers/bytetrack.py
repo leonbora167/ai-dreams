@@ -17,7 +17,7 @@ class ByteTrackTracker(BaseTracker):
             frame_rate=int(round(fps)) if fps > 0 else 25,
         )
 
-    def update(self, detections: Detection) -> TrackedDetection:
+    def update(self, detections: Detection, frame: np.ndarray = None) -> TrackedDetection:
         if len(detections) == 0:
             sv_dets = sv.Detections(
                 xyxy=np.empty((0, 4), dtype=np.float32),

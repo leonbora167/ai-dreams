@@ -176,7 +176,7 @@ class SequentialPipeline:
                     detections = detector.detect(frame)
 
                     # Modular tracking
-                    tracked = tracker.update(detections)
+                    tracked = tracker.update(detections, frame=frame)
                     seen = set()
 
                     if len(tracked) > 0:

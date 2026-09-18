@@ -32,11 +32,12 @@ class BaseTracker(ABC):
         self.fps = fps
 
     @abstractmethod
-    def update(self, detections: Detection) -> TrackedDetection:
+    def update(self, detections: Detection, frame: np.ndarray = None) -> TrackedDetection:
         """Update tracker state with current frame's detections.
 
         Args:
             detections: Standardized Detection object from detector.
+            frame: Optional BGR video frame array (H, W, 3) for visual appearance ReID.
 
         Returns:
             TrackedDetection: Active confirmed tracks with consistent local IDs.

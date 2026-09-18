@@ -31,7 +31,7 @@ class BoTSORTTracker(BaseTracker):
         )
         self.tracker = BOTSORT(args)
 
-    def update(self, detections: Detection) -> TrackedDetection:
+    def update(self, detections: Detection, frame: np.ndarray = None) -> TrackedDetection:
         if len(detections) == 0:
             return TrackedDetection.empty()
 

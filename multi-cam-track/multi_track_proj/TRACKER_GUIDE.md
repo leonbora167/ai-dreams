@@ -100,13 +100,18 @@ detector:
 ### B. Built-in Trackers (Switch via `tracker.name`)
 
 The pipeline includes built-in multi-object tracking backends (`src/trackers/`):
-1. **`bytetrack` (`ByteTrackTracker`)**: ByteTrack two-stage association using `supervision`.
-2. **`botsort` (`BoTSORTTracker`)**: BoT-SORT tracker with camera motion compensation.
+1. **`bytetrack` (`ByteTrackTracker`)**: ByteTrack two-stage association using `supervision` (Best overall MOTA).
+2. **`botsort` (`BoTSORTTracker`)**: BoT-SORT tracker with camera motion compensation (CMC).
+3. **`ocsort` (`OCSortTracker`)**: Observation-Centric SORT using virtual trajectory recovery (Highest IDF1).
+4. **`deepocsort` (`DeepOCSortTracker`)**: Deep OC-SORT integrating OSNet visual appearance embeddings.
+5. **`strongsort` (`StrongSortTracker`)**: StrongSORT with camera motion compensation and EMA feature banks.
+6. **`deepsort` (`DeepSortTracker`)**: Classic DeepSORT with appearance metric learning.
+7. **`norfair` (`NorfairTrackerWrapper`)**: Norfair flexible distance-based multi-object tracking.
 
 #### Configuration Example in YAML:
 ```yaml
 tracker:
-  name: bytetrack       # 'bytetrack' or 'botsort'
+  name: bytetrack       # 'bytetrack', 'botsort', 'ocsort', 'deepocsort', 'strongsort', 'deepsort', 'norfair'
   track_high_thresh: 0.5
   track_low_thresh: 0.1
   new_track_thresh: 0.6
