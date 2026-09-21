@@ -1,0 +1,60 @@
+# PETS 2009 (S2.L1) Benchmark Configuration for Decoupled Stateless MTMC Tracker
+# 4 synchronized cameras: cam01, cam02, cam03, cam04
+system:
+  video_dir: ./data/pets2009/videos
+  output_dir: multi_track_stateless/outputs/pets2009_stateless_ocsort
+  display_resolution: [1280, 720]
+
+cameras:
+  auto_discover: true
+  topology:
+    adjacency: {}
+    max_transition_seconds: 30
+    min_transition_seconds: 0
+
+# 1. Stateless Detector Service (Triton ready)
+# Supported: 'rfdetr' (Apache 2.0) or 'yolo' (Ultralytics)
+detector:
+  name: rfdetr
+  model: rf-detr-nano
+  confidence: 0.35
+  classes: [0]
+  device: auto
+
+# 2. Stateful Single-Camera Tracker
+# Supported: 'ocsort' (Observation-Centric SORT) or 'botsort' (BoT-SORT)
+tracker:
+  name: ocsort
+  track_high_thresh: 0.5
+  track_low_thresh: 0.1
+  new_track_thresh: 0.6
+  track_buffer: 30
+
+# 3. Stateless Multi-Modal Feature Service (Triton ready)
+features:
+  reid:
+    enabled: true
+    model: osnet_ain_x1_0
+    weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth
+    input_size: [256, 128]
+    weight: 0.8
+  color:
+    enabled: true
+    weight: 0.1
+  pose:
+    enabled: true
+    model_type: yolo11n-pose
+    min_kpt_conf: 0.25
+    weight: 0.1
+  quality:
+    enabled: true
+    min_confidence: 0.5
+    min_crop_pixels: [30, 60]
+
+# 4. Stateful Global Gallery Association
+association:
+  similarity_threshold: 0.70
+  clustering_method: average
+
+output:
+  save_tracklets: true

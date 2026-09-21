@@ -17,3 +17,8 @@
 /multi-cam-track/multi_track_proj/src/trackers/__pycache__
 /multi-cam-track/multi_track_proj/scripts/__pycache__
 /multi-cam-track/multi_track_proj/__pycache__
+/multi-cam-track/multi_track_stateless/outputs
+/multi-cam-track/multi_track_stateless/src/services/__pycache__
+/multi-cam-track/multi_track_stateless/src/__pycache__
+/multi-cam-track/multi_track_stateless/src/state/__pycache__
+/multi-cam-track/multi_track_stateless/src/trackers/__pycache__

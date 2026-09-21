@@ -1,0 +1,107 @@
+# ==============================================================================
+# Custom Multi-Camera Tracking Configuration (Decoupled Stateless Architecture)
+# ==============================================================================
+# Use this configuration template for your custom video streams.
+#
+# Quick Run:
+#   /opt/miniconda3/envs/cv/bin/python multi_track_stateless/run.py \
+#     --config multi_track_stateless/configs/custom.yaml
+#
+# Or override directories via command line:
+#   /opt/miniconda3/envs/cv/bin/python multi_track_stateless/run.py \
+#     --config multi_track_stateless/configs/custom.yaml \
+#     --videos /path/to/my_videos \
+#     --output-dir /path/to/my_output
+# ==============================================================================
+
+system:
+  # Directory containing your camera video files (e.g. cam01.mp4, cam02.mp4, ...)
+  video_dir: ./data/custom_videos
+  output_dir: multi_track_stateless/outputs/custom_stateless_run
+  display_resolution: [1280, 720]
+
+cameras:
+  auto_discover: true
+  topology:
+    # Maximum physical transit time (seconds) allowed between camera handoffs.
+    # Tracks older than this threshold will not be matched to newly entering targets.
+    max_transition_seconds: 30
+    min_transition_seconds: 0
+
+# ------------------------------------------------------------------------------
+# 1. Stateless Detector Service
+# ------------------------------------------------------------------------------
+# Pure functional inference without tracking memory. Can run locally or via Triton.
+detector:
+  # Options:
+  #   - 'rfdetr' : Roboflow Detection Transformer (Apache 2.0 license) [DEFAULT]
+  #   - 'yolo'   : Ultralytics YOLO (yolo11n.pt, etc.)
+  #   - 'triton' : Remote Triton Inference Server gRPC/HTTP endpoint
+  name: rfdetr
+  model: rf-detr-nano
+  confidence: 0.35
+  classes: [0]     # 0: Person class
+  device: auto     # 'auto' resolves MPS (Apple Silicon), CUDA, or CPU
+  # triton_url: "localhost:8001"
+
+# ------------------------------------------------------------------------------
+# 2. Stateful Single-Camera Tracker
+# ------------------------------------------------------------------------------
+# Dedicated tracker instance per camera maintaining Kalman filters and trajectory.
+tracker:
+  # Options:
+  #   - 'ocsort'  : Observation-Centric SORT (robust during non-linear motion & occlusion) [RECOMMENDED]
+  #   - 'botsort' : Camera motion-compensated tracking
+  name: ocsort
+  track_high_thresh: 0.5   # Score threshold for first-association stage
+  track_low_thresh: 0.1    # Score threshold for recovering occluded secondary detections
+  new_track_thresh: 0.6    # Minimum detection score to initialize a new track
+  track_buffer: 30         # Maximum lost frames before terminating a track (e.g. 1s at 30fps)
+
+# ------------------------------------------------------------------------------
+# 3. Stateless Multi-Modal Feature Service
+# ------------------------------------------------------------------------------
+# Dispatches crops to feature models without holding track state. Triton ready.
+features:
+  # Deep Appearance ReID (OSNet)
+  reid:
+    enabled: true
+    model: osnet_ain_x1_0
+    weight_path: ./models/osnet_ain_x1_0_msmt17_256x128.pth
+    input_size: [256, 128]
+    weight: 0.8
+    # type: local      # or 'triton'
+    # triton_url: "localhost:8001"
+
+  # Spatial Color Distribution (HSV Histogram)
+  color:
+    enabled: true
+    h_bins: 6
+    s_bins: 4
+    weight: 0.1
+
+  # Human Pose & Biometrics (Strategy 1)
+  pose:
+    enabled: true
+    # 'yolo11n-pose' (Ultralytics) or 'rtmpose' (OpenMMLab rtmlib)
+    model_type: yolo11n-pose
+    min_kpt_conf: 0.25
+    weight: 0.1
+
+  # Quality Gating: filter out blurry / tiny crops to protect embedding fidelity
+  quality:
+    enabled: true
+    min_confidence: 0.4
+    min_crop_pixels: [30, 60]
+
+# ------------------------------------------------------------------------------
+# 4. Stateful Global Association Gallery
+# ------------------------------------------------------------------------------
+association:
+  # Multi-modal cosine similarity threshold.
+  # Higher = stricter identity separation, Lower = more aggressive cross-cam matching.
+  similarity_threshold: 0.70
+  clustering_method: average
+
+output:
+  save_tracklets: true
