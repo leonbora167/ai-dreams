@@ -173,3 +173,19 @@ features:
     weight: 0.1
 ```
 
+### Switching Speed Estimation Approaches:
+```yaml
+speed_estimation:
+  enabled: true       # set to false to hide speed completely from bounding box labels
+  # Available modular methods (zero manual calibration needed):
+  #   - 'height_prior'    : Anthropometric optical scaling using 1.70m human height prior (Fast & Robust)
+  #   - 'biomechanical'   : Pose gait cadence & stride-length model (Alexander/Inman)
+  #   - 'auto_homography' : Unsupervised ground plane homography via vanishing points
+  #   - 'monocular_depth' : 3D pinhole camera-space metric geometry
+  method: height_prior
+  person_height_meters: 1.70
+  smoothing_window: 10
+  unit: km/h          # 'km/h' or 'm/s'
+```
+
+

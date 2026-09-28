@@ -15,6 +15,7 @@ class Tracklet:
     video_path: str
     global_id: int = None
     crops: list = None
+    speeds: list = None
 
     @property
     def track_id(self): return self.local_id

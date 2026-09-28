@@ -27,14 +27,21 @@ class GlobalGallery:
             self.entries.append((tracklet, descriptor, gid))
             return gid
 
+        # Collect all GIDs that are already active on this camera during this tracklet's time window
+        conflicting_gids = set()
+        for old_track, _, gid in self.entries:
+            if old_track.camera_id == tracklet.camera_id:
+                # Time intervals overlap if not strictly disjoint
+                if not (tracklet.end_time < old_track.start_time or tracklet.start_time > old_track.end_time):
+                    conflicting_gids.add(gid)
+
         best_gid = None
         best_score = -1.0
 
         for old_track, old_desc, gid in self.entries:
-            # Physical conflict check: cannot be in the same camera at overlapping times
-            if old_track.camera_id == tracklet.camera_id:
-                if not (tracklet.end_time < old_track.start_time or tracklet.start_time > old_track.end_time):
-                    continue
+            # Hard physical constraint: a target cannot be in two places at once on the same camera
+            if gid in conflicting_gids:
+                continue
 
             # Temporal travel window constraint across different cameras
             if old_track.camera_id != tracklet.camera_id:

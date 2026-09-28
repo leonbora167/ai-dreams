@@ -24,13 +24,15 @@ class _WorkingTrack:
         self.bboxes: List[List[float]] = []
         self.confidences: List[float] = []
         self.crops: List[np.ndarray] = []
+        self.speeds: List[Optional[float]] = []
         self.max_crops = 24
         self.total_seen = 0
 
-    def add(self, frame_id: int, bbox: list, conf: float, frame: np.ndarray):
+    def add(self, frame_id: int, bbox: list, conf: float, frame: np.ndarray, speed: Optional[float] = None):
         self.frames.append(frame_id)
         self.bboxes.append(bbox)
         self.confidences.append(conf)
+        self.speeds.append(speed)
         self.total_seen += 1
 
         x1, y1, x2, y2 = [int(v) for v in bbox]
@@ -65,6 +67,7 @@ class _WorkingTrack:
             confidences=self.confidences,
             fps=self.fps,
             video_path=self.video_path,
+            speeds=self.speeds,
         )
         t.crops = self.crops
         return t
@@ -73,15 +76,19 @@ class _WorkingTrack:
 class CameraTrackerSession:
     """Stateful tracking container for a single camera video stream."""
 
-    def __init__(self, camera_id: str, cfg: dict, fps: float, video_path: str):
+    def __init__(self, camera_id: str, cfg: dict, fps: float, video_path: str, pose_extractor=None):
         self.camera_id = camera_id
         self.cfg = cfg
         self.fps = fps
         self.video_path = video_path
         self.timeout = int(cfg.get("tracker", {}).get("track_buffer", 30))
+        self.pose_extractor = pose_extractor
 
-        # Instantiate dedicated stateful tracker instance for this camera
+        # Instantiate dedicated stateful tracker and modular speed estimator
         self.tracker: BaseTracker = get_tracker(cfg, fps)
+        from ..services.speed_service import create_speed_tracker
+        self.speed_tracker = create_speed_tracker(cfg, fps)
+
         self.active_tracks: Dict[int, _WorkingTrack] = {}
         self.finalized_tracklets: List[Tracklet] = []
 
@@ -98,9 +105,21 @@ class CameraTrackerSession:
                 if tid not in self.active_tracks:
                     self.active_tracks[tid] = _WorkingTrack(self.camera_id, tid, self.fps, self.video_path)
                 item = self.active_tracks[tid]
-                item.add(frame_no, box, float(conf), frame)
 
-                observations.append({
+                # Extract keypoints if biomechanical speed estimation or pose is active
+                kpts = None
+                if self.speed_tracker.enabled and "bio" in self.speed_tracker.method and self.pose_extractor is not None:
+                    x1, y1, x2, y2 = [int(v) for v in box]
+                    h, w = frame.shape[:2]
+                    crop = frame[max(0, y1):min(h, y2), max(0, x1):min(w, x2)]
+                    if crop.size > 0:
+                        kpts, _ = self.pose_extractor._extract_crop_keypoints(crop)
+
+                # Update speed estimation
+                speed_val = self.speed_tracker.update_track(tid, frame_no, box, keypoints=kpts)
+                item.add(frame_no, box, float(conf), frame, speed=speed_val)
+
+                obs_entry = {
                     "camera_id": self.camera_id,
                     "frame_id": frame_no,
                     "timestamp_sec": round(frame_no / self.fps, 4),
@@ -108,7 +127,10 @@ class CameraTrackerSession:
                     "bbox_xyxy": [round(float(x), 2) for x in box],
                     "confidence": round(float(conf), 5),
                     "global_id": None
-                })
+                }
+                if speed_val is not None:
+                    obs_entry["speed"] = round(float(speed_val), 1)
+                observations.append(obs_entry)
 
         # Evict stale tracks that crossed the timeout threshold
         for tid, item in list(self.active_tracks.items()):

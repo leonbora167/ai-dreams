@@ -35,7 +35,7 @@ def _get_color(global_id):
 
 
 def render_single_camera(video_path: Path, camera_id: str, tracks, mapping, output_path: Path,
-                         display_resolution=None, show_local_id=True):
+                         display_resolution=None, show_local_id=True, speed_unit=None):
     """Render an individual annotated video for a single camera stream.
 
     Args:
@@ -46,6 +46,7 @@ def render_single_camera(video_path: Path, camera_id: str, tracks, mapping, outp
         output_path: Path to save the annotated .mp4 video.
         display_resolution: Optional (width, height) tuple to resize output.
         show_local_id: If True, renders label as 'G1 [L3]'. If False, renders 'G1'.
+        speed_unit: Optional speed unit string (e.g. 'km/h', 'm/s'). If set and speeds exist, renders speed.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cap = cv2.VideoCapture(str(video_path))
@@ -64,8 +65,10 @@ def render_single_camera(video_path: Path, camera_id: str, tracks, mapping, outp
     boxes_by_frame = {}
     for t in tracks:
         gid = mapping.get((camera_id, t.local_id), t.global_id)
-        for f_no, box in zip(t.frames, t.boxes):
-            boxes_by_frame.setdefault(f_no, []).append((box, t.local_id, gid))
+        speeds = getattr(t, 'speeds', None) or [None] * len(t.frames)
+        for idx, (f_no, box) in enumerate(zip(t.frames, t.boxes)):
+            spd = speeds[idx] if idx < len(speeds) else None
+            boxes_by_frame.setdefault(f_no, []).append((box, t.local_id, gid, spd))
 
     frame_idx = 0
     with tqdm(total=total_frames or None, desc=f'rendering {camera_id}', unit='frame') as pbar:
@@ -74,22 +77,25 @@ def render_single_camera(video_path: Path, camera_id: str, tracks, mapping, outp
             if not ok:
                 break
 
-            # Overlay bounding boxes and identities
+            # Overlay bounding boxes, identities, and optional speed
             if frame_idx in boxes_by_frame:
-                for box, local_id, gid in boxes_by_frame[frame_idx]:
+                for box, local_id, gid, spd in boxes_by_frame[frame_idx]:
                     x1, y1, x2, y2 = map(int, box)
                     color = _get_color(gid)
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
 
-                    if show_local_id:
-                        label = f"G{gid} [L{local_id}]" if gid is not None else f"L{local_id}"
+                    base_label = f"G{gid} [L{local_id}]" if show_local_id else (f"G{gid}" if gid is not None else f"L{local_id}")
+                    if spd is not None and speed_unit:
+                        label = f"{base_label} | {spd:.1f} {speed_unit}"
+                    elif spd is not None:
+                        label = f"{base_label} | {spd:.1f} km/h"
                     else:
-                        label = f"G{gid}" if gid is not None else f"L{local_id}"
+                        label = base_label
 
-                    (lw, lh), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 2)
+                    (lw, lh), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 2)
                     ly = max(lh + baseline + 4, y1)
                     cv2.rectangle(frame, (x1, ly - lh - baseline - 4), (x1 + lw + 6, ly), (0, 0, 0), -1)
-                    cv2.putText(frame, label, (x1 + 3, ly - baseline - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.50, color, 2, cv2.LINE_AA)
+                    cv2.putText(frame, label, (x1 + 3, ly - baseline - 2), cv2.FONT_HERSHEY_SIMPLEX, 0.48, color, 2, cv2.LINE_AA)
 
             # Camera name overlay
             cv2.putText(frame, f"{camera_id} | Frame {frame_idx}", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 0, 0), 3, cv2.LINE_AA)

@@ -16,6 +16,13 @@ DEFAULTS = {
         'quality': {'enabled': True, 'min_confidence': .5, 'min_crop_pixels': [40, 90]},
         'geometry': {'enabled': False}, 'pose': {'enabled': False}},
     'association': {'similarity_threshold': .75, 'clustering_method': 'average'},
+    'speed_estimation': {
+        'enabled': False,
+        'method': 'height_prior',
+        'person_height_meters': 1.70,
+        'smoothing_window': 10,
+        'unit': 'km/h',
+    },
     'output': {'video': 'outputs/visualization/multi_camera.mp4', 'save_tracklets': True},
 }
 

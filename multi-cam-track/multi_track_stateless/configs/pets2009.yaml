@@ -56,5 +56,18 @@ association:
   similarity_threshold: 0.70
   clustering_method: average
 
+# 5. Modular Pedestrian Speed Estimation
+# Switchable methods:
+#   - 'height_prior'    : Anthropometric optical scaling using 1.70m human height prior (Fast & Robust)
+#   - 'biomechanical'   : Pose gait cadence & stride-length model (Alexander/Inman)
+#   - 'auto_homography' : Unsupervised ground plane homography via vanishing points
+#   - 'monocular_depth' : 3D pinhole camera-space metric geometry
+speed_estimation:
+  enabled: true
+  method: height_prior
+  person_height_meters: 1.70
+  smoothing_window: 10
+  unit: km/h
+
 output:
   save_tracklets: true

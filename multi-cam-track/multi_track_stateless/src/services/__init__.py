@@ -15,6 +15,15 @@ from .feature_service import (
     StatelessPoseExtractor,
     StatelessFeatureService
 )
+from .speed_service import (
+    BaseSpeedEstimator,
+    HeightPriorSpeedEstimator,
+    BiomechanicalSpeedEstimator,
+    AutoHomographySpeedEstimator,
+    MonocularDepthSpeedEstimator,
+    TrackSpeedTracker,
+    create_speed_tracker
+)
 
 __all__ = [
     'BaseDetectorService',
@@ -28,6 +37,13 @@ __all__ = [
     'TritonReIDExtractor',
     'StatelessColorExtractor',
     'StatelessPoseExtractor',
-    'StatelessFeatureService'
+    'StatelessFeatureService',
+    'BaseSpeedEstimator',
+    'HeightPriorSpeedEstimator',
+    'BiomechanicalSpeedEstimator',
+    'AutoHomographySpeedEstimator',
+    'MonocularDepthSpeedEstimator',
+    'TrackSpeedTracker',
+    'create_speed_tracker'
 ]
 

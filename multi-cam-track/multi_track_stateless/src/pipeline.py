@@ -67,8 +67,11 @@ class SequentialPipeline:
             fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
 
-            # Stateful camera session for this stream (holding dedicated tracker instance)
-            session = CameraTrackerSession(camera, self.cfg, fps, str(video_path))
+            # Stateful camera session for this stream (holding dedicated tracker instance & speed estimator)
+            session = CameraTrackerSession(
+                camera, self.cfg, fps, str(video_path),
+                pose_extractor=getattr(self.feature_service, 'pose_extractor', None)
+            )
             observations = []
 
             frame_no = 0
@@ -132,6 +135,8 @@ class SequentialPipeline:
             cam_video_out = self.viz_dir / f"{camera}_tracked.mp4"
             self.log(f"  Rendering tracked visualization -> {cam_video_out.name}...")
             disp_res = tuple(self.cfg.get("system", {}).get("display_resolution", [1280, 720]))
+            spd_cfg = self.cfg.get("speed_estimation", {})
+            speed_unit = spd_cfg.get("unit", "km/h") if spd_cfg.get("enabled", False) else None
             render_single_camera(
                 video_path=video_path,
                 camera_id=camera,
@@ -139,6 +144,7 @@ class SequentialPipeline:
                 mapping=mapping,
                 output_path=cam_video_out,
                 display_resolution=disp_res,
+                speed_unit=speed_unit,
             )
             individual_video_paths[camera] = str(cam_video_out)
             self.log(f"  Saved: {cam_video_out}")
