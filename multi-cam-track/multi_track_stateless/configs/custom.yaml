@@ -116,6 +116,7 @@ speed_estimation:
   #   - 'auto_homography' : Unsupervised ground plane homography via vanishing points
   #   - 'monocular_depth' : 3D pinhole camera-space metric geometry
   method: height_prior
+  # depth_backend: pinhole    # For monocular_depth: 'pinhole' (default, 0MB, no download needed) or 'depth_anything' (auto-downloads from HF)
   person_height_meters: 1.70  # Average adult human height (meters)
   smoothing_window: 10        # Rolling frame window for smoothing speed jitter
   unit: km/h                  # Speed unit: 'km/h' or 'm/s'
