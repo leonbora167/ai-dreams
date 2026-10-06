@@ -1,0 +1,17 @@
+{
+  "id": "01a10baa-3dfd-7f18-af51-5c8c9d6cf40c",
+  "name": "AI Model Drift Observatory",
+  "description": "Computer Vision Model Drift & Data Quality Tracking",
+  "dashboard": {
+    "name": "AI Model Drift Observatory",
+    "panels": [],
+    "tabs": [],
+    "tab_id_to_panel_ids": {}
+  },
+  "team_id": null,
+  "org_id": null,
+  "date_from": null,
+  "date_to": null,
+  "created_at": "2026-10-05T16:14:28.797109",
+  "version": "1"
+}

@@ -1,0 +1,7 @@
+{
+  "id": "01a10ba9-de2b-7195-8513-5789a3e9ccf2",
+  "name": "CV Model Drift Observatory",
+  "description": "Ad-hoc model drift monitoring dashboard for computer vision",
+  "org_id": null,
+  "version": "2"
+}

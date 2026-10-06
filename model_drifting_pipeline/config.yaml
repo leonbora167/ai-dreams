@@ -1,0 +1,27 @@
+name: "model_drifting_pipeline"
+version: "1.0.0"
+
+models:
+  inception_v3:
+    type: "classification"
+    weights: "DEFAULT"
+    num_classes: 10
+    input_size: [299, 299]
+    classes: ["airplane", "automobile", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"]
+  rf_detr:
+    type: "detection"
+    architecture: "fasterrcnn_resnet50_fpn"
+    weights: "DEFAULT"
+    score_thresh: 0.5
+    classes: ["person", "car", "bicycle", "bus", "motorcycle", "dog", "cat"]
+
+drift_thresholds:
+  data_drift_p_value: 0.05
+  quality_drift_threshold: 0.2
+  prediction_drift_threshold: 0.15
+  performance_degradation_alert: 0.08
+
+paths:
+  data_dir: "data"
+  results_dir: "results"
+  models_dir: "models"

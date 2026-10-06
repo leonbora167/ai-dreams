@@ -28,3 +28,10 @@
 /comic_scene_2d_3d_v2/output
 /comic_scene_2d_3d_v2/pipeline/__pycache__
 /comic_scene_2d_3d_v2/__pycache__
+/model_drifting_pipeline/data
+/model_drifting_pipeline/results
+/model_drifting_pipeline/src/utils/__pycache__
+/model_drifting_pipeline/src/quality/__pycache__
+/model_drifting_pipeline/src/drift/__pycache__
+/model_drifting_pipeline/src/adapters/models/__pycache__
+*.pyc
