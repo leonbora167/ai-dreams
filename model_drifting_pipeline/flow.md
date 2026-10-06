@@ -37,9 +37,30 @@ We must distinguish between:
 │                     VISUAL REPORTS                        │
 │  • Executive Visual HTML Report (Self-Contained)          │
 │  • Evidently AI Interactive Report                        │
-│  • Structured Machine-Readable JSON                       │
-└───────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 1.1 Ground Truth vs. "New" Client Data: What Artificial Artifacts Were Added?
+
+In real production deployments, you rarely get to know in advance *how* data will break. To rigorously test and prove this POC without waiting months for real camera hardware to degrade in the field, we created **controlled, synthetic drift experiments** matching realistic industrial failure modes.
+
+### What is the "Golden" / Ground Truth Dataset?
+- **Golden Dataset**: The pristine reference baseline. This represents the exact distribution of data on which the model was validated or initially deployed.
+  - Contains clean, sharp, properly lit images.
+  - Accompanied by **100% verified ground-truth labels** (class names for CIFAR-10, bounding boxes and labels for PASCAL VOC).
+  - Used by the drift engine as the **Reference Anchor** to compute statistical baselines.
+
+### What is the "New" Client Dataset, and what artifacts were injected?
+The "New" datasets represent data captured weeks or months after deployment. In [`src/utils/perturbations.py`](src/utils/perturbations.py), we injected specific real-world physical and distribution phenomena:
+
+| Test Dataset Scenario | Physical Failure Mode Simulated | Specific Artificial Artifacts Injected | What Drift It Triggers |
+| :--- | :--- | :--- | :--- |
+| **`cifar10_identical`** | Ideal production day. Camera, lighting, and subjects are identical. | **Zero artifacts added.** Bit-for-bit identical copy of golden images. | **No Drift (LOW RISK)**. Proves the engine has zero false alarms. |
+| **`cifar10_camera_degraded`** & **`voc_camera_degraded`** | Dirty/fogged camera lens, low-light sensor ISO noise, and optical out-of-focus blur. | 1. **Gaussian Blur (`radius=2.5`)**: Blurs high-frequency edge gradients (simulates unfocused optics or smeared lens).<br>2. **Brightness Attenuation (`factor=0.6`)**: Diminishes illumination by 40% (simulates night/poor lighting).<br>3. **Gaussian Sensor Noise (`sigma=20.0`)**: Injects zero-mean Gaussian electronic noise across RGB channels (simulates cheap/underexposed sensors). | **Data Quality & Feature Drift (HIGH RISK)**. Causes Laplacian sharpness variance to drop and feature embeddings to migrate away from golden centroids. |
+| **`cifar10_distribution_shifted`** | Seasonal/demographic shift in subject matter. | **Subject sampling re-weighting**: In the golden dataset, all 10 classes are evenly balanced (10% each). In the shifted dataset, we force **80% animals (dogs & cats) and only 10% vehicles (cars & planes)**. Images themselves remain clean. | **Prediction Drift (HIGH RISK)**. Model predictions tilt heavily toward animal classes; output entropy and class frequencies shift dramatically. |
+| **`cifar10_unlabelled` & `voc_unlabelled`** | Client uploads raw imagery without spending money on human annotators. | The imagery is camera-degraded, but **all annotation files (`labels.json` or XML/JSON boxes) are completely omitted**. | **Performance = NOT AVAILABLE**. Proves the system does *not* hallucinate accuracy drops without labels, but flags Data Quality & Prediction Drift with an advisory. |
+| **Training Quality Drift (`label_noise`)** | Sloppy crowdsourced data labelling or human annotator error during training. | We systematically invert ground-truth labels at **5%, 10%, and 20% random corruption rates** prior to model training. | **Training Performance Drift**. Directly demonstrates how dirty training data degrades model accuracy from 88.5% down to 61.3%. |
 
 ---
 

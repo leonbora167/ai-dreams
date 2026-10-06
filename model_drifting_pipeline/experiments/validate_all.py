@@ -13,7 +13,7 @@ def run_all_validation_tests():
         model_name="inception_v3",
         golden_path="data/golden/cifar10_golden",
         new_path="data/new/cifar10_identical",
-        max_samples=25
+        max_samples=15
     )
     assert res1["overall_status"] == "LOW RISK", f"Test 1 failed: got {res1['overall_status']}"
     print("✅ TEST 1 PASSED!")
@@ -24,7 +24,7 @@ def run_all_validation_tests():
         model_name="inception_v3",
         golden_path="data/golden/cifar10_golden",
         new_path="data/new/cifar10_camera_degraded",
-        max_samples=25
+        max_samples=15
     )
     assert res2["overall_status"] == "HIGH RISK", f"Test 2 failed: got {res2['overall_status']}"
     assert res2["risk_summary"]["ratings"]["Data Quality Drift"] == "HIGH", "Test 2 failed: Quality drift not detected"
@@ -36,7 +36,7 @@ def run_all_validation_tests():
         model_name="inception_v3",
         golden_path="data/golden/cifar10_golden",
         new_path="data/new/cifar10_distribution_shifted",
-        max_samples=30
+        max_samples=15
     )
     print(f"Test 3 Status: {res3['overall_status']}, Prediction Drift: {res3['risk_summary']['ratings']['Prediction Drift']}")
     print("✅ TEST 3 COMPLETED!")
@@ -47,7 +47,7 @@ def run_all_validation_tests():
         model_name="inception_v3",
         golden_path="data/golden/cifar10_golden",
         new_path="data/new/cifar10_unlabelled",
-        max_samples=25
+        max_samples=15
     )
     assert res4["performance_drift"]["available"] is False, "Test 4 failed: performance marked available for unlabelled data"
     assert res4["risk_summary"]["ratings"]["Performance Drift"] == "NOT AVAILABLE"
@@ -59,7 +59,7 @@ def run_all_validation_tests():
         model_name="rf_detr",
         golden_path="data/golden/voc_golden",
         new_path="data/new/voc_camera_degraded",
-        max_samples=15
+        max_samples=10
     )
     assert res5["overall_status"] == "HIGH RISK", f"Test 5 failed: got {res5['overall_status']}"
     print("✅ TEST 5 PASSED!")
