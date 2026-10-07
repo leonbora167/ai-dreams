@@ -14,7 +14,8 @@ def run_assessment(
     golden_name: Optional[str] = None,
     new_name: Optional[str] = None,
     dataset_type: Optional[str] = None,
-    max_samples: Optional[int] = None
+    max_samples: Optional[int] = None,
+    assessment_id: Optional[str] = None
 ):
     print(f"\n==========================================")
     print(f"🚀 RUNNING AD-HOC MODEL DRIFT ASSESSMENT")
@@ -52,7 +53,8 @@ def run_assessment(
         golden_items=golden_items,
         golden_name=g_label,
         new_items=new_items,
-        new_name=n_label
+        new_name=n_label,
+        assessment_id=assessment_id
     )
 
     print("\n" + "=" * 50)
@@ -91,13 +93,15 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="inception_v3")
     parser.add_argument("--golden", type=str, default="data/golden/cifar10_golden")
     parser.add_argument("--new", type=str, default="data/new/cifar10_camera_degraded")
-    parser.add_argument("--max_samples", type=int, default=50)
+    parser.add_argument("--max_samples", type=int, default=50, help="Maximum number of samples to evaluate")
+    parser.add_argument("--assessment_id", type=str, default=None, help="Custom assessment run ID / folder name")
     args = parser.parse_args()
 
     run_assessment(
         model_name=args.model,
         golden_path=args.golden,
         new_path=args.new,
-        max_samples=args.max_samples
+        max_samples=args.max_samples,
+        assessment_id=args.assessment_id
     )
 

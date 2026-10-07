@@ -40,18 +40,20 @@ Run an ad-hoc assessment on an existing model:
 
 **Image Classification (Inception-v3):**
 ```bash
-PYTHONPATH=. python src/drift/runner.py \
+python -m src.drift.runner \
   --model inception_v3 \
   --golden data/golden/cifar10_golden \
-  --new data/new/cifar10_camera_degraded
+  --new data/new/cifar10_camera_degraded \
+  --assessment_id custom_client_eval_01
 ```
 
 **Object Detection (RF-DETR):**
 ```bash
-PYTHONPATH=. python src/drift/runner.py \
+python -m src.drift.runner \
   --model rf_detr \
   --golden data/golden/voc_golden \
-  --new data/new/voc_camera_degraded
+  --new data/new/voc_camera_degraded \
+  --assessment_id custom_detection_eval_01
 ```
 
 Every run automatically outputs:
@@ -59,10 +61,20 @@ Every run automatically outputs:
 - **Evidently AI Interactive Report**: `results/assessments/<assessment_id>/evidently_drift_report.html`
 - **Machine-readable JSON**: `results/assessments/<assessment_id>/summary.json`
 
-### 4. Run Training Drift Experiments
+### 4. Run Training Drift Experiments & Launch TensorBoard
 ```bash
-PYTHONPATH=. python experiments/training_drift/run_training_drift.py
-python src/utils/generate_visual_report.py --training_drift
+# Synthetic noise sweep (0%, 5%, 10%, 20%)
+python -m experiments.training_drift.run_training_drift --model inception_v3 --run_id sweep_01
+
+# Or with your own custom Golden vs Dirty datasets
+python -m experiments.training_drift.run_training_drift \
+  --model rf_detr \
+  --golden_dataset data/golden/voc_golden \
+  --dirty_dataset data/new/voc_camera_degraded \
+  --run_id custom_voc_train_01
+
+# Launch TensorBoard:
+tensorboard --logdir results/training_drift --port 6006
 ```
 Report generated at: `results/training_drift/training_drift_report.html`.
 

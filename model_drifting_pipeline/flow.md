@@ -153,31 +153,60 @@ PYTHONPATH=. python src/utils/prepare_datasets.py
 PYTHONPATH=. python src/utils/prepare_voc_dataset.py
 ```
 
-### Step 4: Run Training Drift Experiment
-To generate the training drift benchmark report:
+### Step 4: Run Training Drift Experiment & View TensorBoard
+You can evaluate training drift either via synthetic noise sweep (0%, 5%, 10%, 20%) or using your own custom clean vs. dirty training datasets:
+
 ```bash
-PYTHONPATH=. python experiments/training_drift/run_training_drift.py
-python src/utils/generate_visual_report.py --training_drift
+# Option A: Synthetic noise corruption sweep (benchmarks 0%, 5%, 10%, 20% label noise)
+python -m experiments.training_drift.run_training_drift \
+  --model inception_v3 \
+  --run_id sweep_run_01
+
+# Option B: Using Custom Datasets (compares your clean golden training data vs dirty training data)
+python -m experiments.training_drift.run_training_drift \
+  --model rf_detr \
+  --golden_dataset data/golden/voc_golden \
+  --dirty_dataset data/new/voc_camera_degraded \
+  --run_id custom_voc_train_01
 ```
-Output report: `results/training_drift/training_drift_report.html` (open in any web browser).
+
+#### Launching the TensorBoard Dashboard:
+TensorBoard logs are saved per run in `results/training_drift/<run_id>/tensorboard_logs`. To view all runs:
+```bash
+tensorboard --logdir results/training_drift --port 6006
+```
+Open **[http://localhost:6006](http://localhost:6006)** in your browser.
+
+> **How does TensorBoard display the two datasets (Golden vs. Dirty) in a single run?**
+> TensorBoard groups metrics using `add_scalars`:
+> - Under **`DataQuality/`**, each chart (e.g. `DataQuality/Sharpness`) plots **two side-by-side curves/bars**: a blue line for `Golden` and an orange line for `Dirty`.
+> - Under **`Performance/`**, it plots `GoldenModel` vs `DirtyDataModel` together on the same graph, along with a scalar for `Performance/Degradation_Drop_pp`.
+> - You can check/uncheck runs in the left sidebar to overlay and compare multiple experiment runs simultaneously.
+
+Generate the standalone HTML report for the experiment:
+```bash
+python -m src.utils.generate_visual_report --training_drift
+```
 
 ### Step 5: Run Inference Drift Assessment
-Run an ad-hoc drift assessment on any model:
+Run an ad-hoc drift assessment on any model and specify a custom run folder name (`--assessment_id`):
 
 **For Classification:**
 ```bash
-PYTHONPATH=. python src/drift/runner.py \
+python -m src.drift.runner \
   --model inception_v3 \
   --golden data/golden/cifar10_golden \
-  --new data/new/cifar10_camera_degraded
+  --new data/new/cifar10_camera_degraded \
+  --assessment_id client_cifar_eval_01
 ```
 
 **For Object Detection:**
 ```bash
-PYTHONPATH=. python src/drift/runner.py \
+python -m src.drift.runner \
   --model rf_detr \
   --golden data/golden/voc_golden \
-  --new data/new/voc_camera_degraded
+  --new data/new/voc_camera_degraded \
+  --assessment_id client_voc_eval_01
 ```
 
 ### Step 6: View the Visual Reports
