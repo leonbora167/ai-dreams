@@ -153,22 +153,33 @@ PYTHONPATH=. python src/utils/prepare_datasets.py
 PYTHONPATH=. python src/utils/prepare_voc_dataset.py
 ```
 
-### Step 4: Run Training Drift Experiment & View TensorBoard
-You can evaluate training drift either via synthetic noise sweep (0%, 5%, 10%, 20%) or using your own custom clean vs. dirty training datasets:
+### Step 4: Run Training Drift Pipelines & View TensorBoard
+
+Training drift is split into two independent workflows:
+
+#### 1. Pre-Training Data Readiness Audit (Before Training Starts)
+Evaluates candidate training data against golden reference training data to output a Go/No-Go training decision gate:
+```bash
+python -m src.drift.pre_training_audit \
+  --golden_dataset data/golden/voc_golden \
+  --new_dataset data/new/voc_camera_degraded \
+  --run_id pre_train_audit_01
+```
+Generates a standalone audit report: `results/pre_training_drift/pre_train_audit_01/pre_training_audit_report.html`.
+
+#### 2. Training Dynamics & Loss Drift (During & Post-Training)
+Simulates epoch-by-epoch loss convergence, tracks the dynamic loss gap ($\Delta \text{Loss}$) and accuracy divergence, streams to TensorBoard, and auto-generates a post-training dynamics HTML report:
 
 ```bash
-# Option A: Synthetic noise corruption sweep (benchmarks 0%, 5%, 10%, 20% label noise)
-python -m experiments.training_drift.run_training_drift \
-  --model inception_v3 \
-  --run_id sweep_run_01
-
-# Option B: Using Custom Datasets (compares your clean golden training data vs dirty training data)
+# Evaluate training dynamics on Custom Datasets
 python -m experiments.training_drift.run_training_drift \
   --model rf_detr \
   --golden_dataset data/golden/voc_golden \
   --dirty_dataset data/new/voc_camera_degraded \
+  --epochs 15 \
   --run_id custom_voc_train_01
 ```
+*(For full mathematical definitions and metric comparisons across detection and classification, refer to **[drift_analysis.md](drift_analysis.md)**).*
 
 #### Launching the TensorBoard Dashboard:
 TensorBoard logs are saved per run in `results/training_drift/<run_id>/tensorboard_logs`. To view all runs:
