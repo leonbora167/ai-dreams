@@ -278,8 +278,11 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="inception_v3", choices=["inception_v3", "rf_detr"])
     parser.add_argument("--golden_dataset", type=str, default=None)
     parser.add_argument("--dirty_dataset", type=str, default=None)
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--run_id", type=str, default=None)
+    parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs (default: 15)")
+    parser.add_argument("--batch_size", type=int, default=16, help="Training batch size (default: 16)")
+    parser.add_argument("--lr", type=float, default=0.001, help="Learning rate (default: 0.001)")
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "sgd"], help="Optimizer choice")
+    parser.add_argument("--run_id", type=str, default=None, help="Custom run name")
     args = parser.parse_args()
 
     results_dir = f"results/training_drift/{args.run_id}" if args.run_id else "results/training_drift"
