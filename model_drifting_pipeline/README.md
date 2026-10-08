@@ -67,6 +67,17 @@ Every run automatically outputs:
 python -m experiments.training_drift.run_training_drift --model inception_v3 --run_id sweep_01
 
 # Or with your own custom Golden vs Dirty datasets and fine-tuned hyperparameters:
+# Option A: Real PyTorch GPU/Accelerator Training (Live Backpropagation & Loss Gap)
+python -m experiments.training_drift.train_real_model \
+  --model inception_v3 \
+  --golden_dataset data/golden/cifar10_golden \
+  --dirty_dataset data/new/cifar10_camera_degraded \
+  --epochs 5 \
+  --batch_size 16 \
+  --lr 0.0005 \
+  --run_id real_training_cifar_01
+
+# Option B: Fast Empirical Training Dynamics Simulation
 python -m experiments.training_drift.run_training_drift \
   --model rf_detr \
   --golden_dataset data/golden/voc_golden \
@@ -80,7 +91,7 @@ python -m experiments.training_drift.run_training_drift \
 # Launch TensorBoard:
 tensorboard --logdir results/training_drift --port 6006
 ```
-Report generated at: `results/training_drift/training_drift_report.html`.
+Reports generated at: `results/training_drift/<run_id>/real_training_drift_report.html` (or `training_drift_report.html`).
 
 ### 5. Run Full Acceptance Validation Suite
 ```bash

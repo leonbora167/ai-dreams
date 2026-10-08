@@ -119,7 +119,29 @@ python -m src.drift.pre_training_audit \
 ---
 
 ### B. During & Post-Training Dynamics Drift
-Measures how learning dynamics and convergence trajectories degrade when training on dirty vs. golden data:
+Measures how learning dynamics and convergence trajectories degrade when training on dirty vs. golden data. We offer two modes:
+
+#### 1. Real PyTorch GPU/Accelerator Training (`train_real_model.py`)
+Performs genuine PyTorch training with real backpropagation, optimizer updates, real cross-entropy loss, and forward passes across Golden and Dirty datasets:
+```bash
+python -m experiments.training_drift.train_real_model \
+  --model inception_v3 \
+  --golden_dataset data/golden/cifar10_golden \
+  --dirty_dataset data/new/cifar10_camera_degraded \
+  --epochs 5 \
+  --batch_size 16 \
+  --lr 0.0005 \
+  --run_id real_train_cifar_01
+```
+- **Hardware Acceleration**: Automatically selects `cuda` (NVIDIA GPU), `mps` (Apple Silicon), or `cpu`.
+- **Live Tracking**: Computes true cross-entropy loss and top-1 accuracy on every batch and epoch.
+- **Dynamic Loss Gap ($\Delta\text{Loss}(e)$)** and **Dynamic Accuracy Gap ($\Delta\text{Acc}(e)$)** are logged in real time.
+- **Outputs**:
+  - Live scalar streaming to TensorBoard: `results/training_drift/<run_id>/tensorboard_logs`
+  - Standalone HTML report: `results/training_drift/<run_id>/real_training_drift_report.html`
+
+#### 2. Fast Empirical Training Dynamics Simulation (`run_training_drift.py`)
+For instant architectural reviews without long training runs:
 ```bash
 python -m experiments.training_drift.run_training_drift \
   --model inception_v3 \
@@ -146,7 +168,7 @@ python -m experiments.training_drift.run_training_drift \
      - `HIGH DIVERGENCE / SEVERE INSTABILITY` ($\Delta \text{Loss} > 0.4$)
 - **Outputs**:
   - Real-time event logs streamed to **TensorBoard** (`results/training_drift/<run_id>/tensorboard_logs`).
-  - Standalone HTML report: `results/training_drift/<run_id>/training_dynamics_report.html`.
+  - Standalone HTML reports: `results/training_drift/<run_id>/training_dynamics_report.html` and `real_training_drift_report.html`.
 
 ---
 

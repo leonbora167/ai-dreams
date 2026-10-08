@@ -171,12 +171,27 @@ python -m src.drift.pre_training_audit \
 Generates a standalone audit report: `results/pre_training_drift/pre_train_audit_01/pre_training_audit_report.html`.
 
 #### 2. Training Dynamics & Loss Drift (During & Post-Training)
-Simulates epoch-by-epoch loss convergence, tracks the dynamic loss gap ($\Delta \text{Loss}$) and accuracy divergence, streams to TensorBoard, and auto-generates a post-training dynamics HTML report.
 
-You can configure hyperparameters centrally in `config.yaml` under `training:` (learning rate, epochs, optimizer, batch size) or override them directly via CLI:
+We provide **two training drift modes**:
 
+##### Mode A: Real PyTorch Training on GPU/Accelerator (Actual Backpropagation)
+Runs genuine PyTorch training with backpropagation, optimizer updates, real cross-entropy/detection loss convergence, and live $\Delta\text{Loss}$ / $\Delta\text{Accuracy}$ drift tracking on hardware accelerators (`cuda`, `mps`, or `cpu`):
 ```bash
-# Evaluate training dynamics on Custom Datasets with fine-tuned hyperparameters:
+python -m experiments.training_drift.train_real_model \
+  --model inception_v3 \
+  --golden_dataset data/golden/cifar10_golden \
+  --dirty_dataset data/new/cifar10_camera_degraded \
+  --epochs 5 \
+  --batch_size 16 \
+  --lr 0.0005 \
+  --run_id real_training_cifar_01
+```
+- **Live TensorBoard streaming**: Loss, Accuracy, Loss Gap ($\Delta\text{Loss}$), and Accuracy Gap ($\Delta\text{Acc}$) are streamed step-by-step and epoch-by-epoch.
+- **Auto-generated Report**: `results/training_drift/<run_id>/real_training_drift_report.html`.
+
+##### Mode B: Fast Empirical Training Dynamics Simulation
+Simulates epoch-by-epoch loss convergence based on empirical quality/distribution shift factors:
+```bash
 python -m experiments.training_drift.run_training_drift \
   --model rf_detr \
   --golden_dataset data/golden/voc_golden \
