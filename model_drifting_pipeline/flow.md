@@ -144,13 +144,16 @@ pip install -r requirements.txt
 ```
 
 ### Step 3: Download & Prepare Benchmark Datasets
-Run the automated preparation scripts (only needed once to populate reference benchmarks):
-```bash
-# Prepare CIFAR-10 classification reference and drift datasets
-PYTHONPATH=. python src/utils/prepare_datasets.py
+Run the automated preparation scripts. You can download and prepare the **complete dataset** (or specify any custom sample count), and then dynamically cap `--max_samples` during assessments:
 
-# Prepare PASCAL VOC detection reference and drift datasets
-PYTHONPATH=. python src/utils/prepare_voc_dataset.py
+```bash
+# Option A: Download and prepare the COMPLETE datasets
+python -m src.utils.prepare_voc_dataset --all
+python -m src.utils.prepare_datasets --all
+
+# Option B: Or download a specific custom sample count (e.g. 200 samples)
+python -m src.utils.prepare_voc_dataset --samples 200
+python -m src.utils.prepare_datasets --samples_per_class 30
 ```
 
 ### Step 4: Run Training Drift Pipelines & View TensorBoard
@@ -220,16 +223,30 @@ python -m src.drift.runner \
   --assessment_id client_voc_eval_01
 ```
 
-### Step 6: View the Visual Reports
-Every run automatically generates:
-1. **Executive Visualization Report**:
-   Located at: `results/assessments/<assessment_id>/executive_report.html`
-   Double-click to open in Chrome/Safari/Firefox. Shows overall risk cards, image quality charts, and metrics.
-2. **Evidently AI Interactive Report**:
-   Located at: `results/assessments/<assessment_id>/evidently_drift_report.html`
-   Interactive distributions, Kolmogorov-Smirnov cumulative graphs, and quantile views.
+### Step 6: View Reports & Launch Observability Dashboards
 
----
+#### A. Standalone Visual HTML Reports (Zero Servers Needed)
+Every assessment, pre-training audit, and training run automatically generates self-contained HTML reports you can double-click and view in any browser:
+1. **Inference Drift Assessment**: `results/assessments/<assessment_id>/executive_report.html`
+2. **Pre-Training Data Audit**: `results/pre_training_drift/<run_id>/pre_training_audit_report.html`
+3. **Training Dynamics & Loss Drift**: `results/training_drift/<run_id>/training_dynamics_report.html`
+4. **Evidently Standalone Interactive Reports**: `results/assessments/<id>/evidently_drift_report.html`
+
+#### B. Launching the Central Evidently UI Dashboard (`localhost:8000`)
+Every inference run and pre-training audit automatically registers into the persistent workspace at `results/evidently_workspace`. To view all projects, metric evolution, and reports in a single local dashboard:
+```bash
+evidently legacy_ui --workspace results/evidently_workspace --port 8000
+```
+Open **[http://localhost:8000](http://localhost:8000)** in your browser. From here you can:
+- Track projects: `Pre-Training Data Audit - VOC`, `CV Drift - rf_detr`, `CV Drift - inception_v3`.
+- View the **Reports** tab to inspect full interactive distribution overlays, quantile statistics, and data quality metrics.
+- View the **Dashboard** tab to observe drift scores and metric trends across historic runs.
+
+#### C. Launching the TensorBoard Training Dashboard (`localhost:6006`)
+```bash
+tensorboard --logdir results/training_drift --port 6006
+```
+Open **[http://localhost:6006](http://localhost:6006)** in your browser.
 
 ## 5. How to Use Your Own Custom Data
 

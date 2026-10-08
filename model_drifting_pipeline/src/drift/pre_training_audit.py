@@ -102,7 +102,65 @@ def assess_pre_training_drift(
         }
     }
 
+    # Generate Evidently AI Interactive Report & Persist to Workspace for localhost Dashboard
+    evidently_html_path = None
+    try:
+        from evidently.legacy.report import Report
+        from evidently.legacy.metric_preset import DataDriftPreset, DataQualityPreset
+        from evidently.legacy.ui.workspace import Workspace
+        from evidently.legacy.ui.dashboards import DashboardPanelCounter, DashboardPanelPlot, PanelValue, PlotType, CounterAgg, ReportFilter
+
+        ev_report = Report(metrics=[DataDriftPreset(), DataQualityPreset()])
+        ev_report.run(reference_data=q_golden_df, current_data=q_new_df)
+        evidently_html_path = os.path.join(run_output_dir, "evidently_pre_training_drift.html")
+        ev_report.save_html(evidently_html_path)
+
+        # Save to Evidently Workspace
+        ws_path = "results/evidently_workspace"
+        os.makedirs(ws_path, exist_ok=True)
+        ws = Workspace.create(ws_path)
+        proj_name = f"Pre-Training Data Audit - {ds_type.upper()}"
+        matching = ws.search_project(proj_name)
+        if matching:
+            proj = matching[0]
+        else:
+            proj = ws.create_project(proj_name)
+            proj.description = f"Pre-training data drift and quality tracking for {ds_type}"
+            proj.dashboard.panels = [
+                DashboardPanelCounter(
+                    title="Drifted Features",
+                    filter=ReportFilter(metadata_values={}, tag_values=[]),
+                    value=PanelValue(metric_id="DatasetDriftMetric", field_path="number_of_drifted_columns"),
+                    agg=CounterAgg.LAST,
+                    size=1
+                ),
+                DashboardPanelCounter(
+                    title="Drift Share",
+                    filter=ReportFilter(metadata_values={}, tag_values=[]),
+                    value=PanelValue(metric_id="DatasetDriftMetric", field_path="share_of_drifted_columns"),
+                    agg=CounterAgg.LAST,
+                    size=1
+                ),
+                DashboardPanelPlot(
+                    title="Image Quality Drift Trends",
+                    filter=ReportFilter(metadata_values={}, tag_values=[]),
+                    values=[
+                        PanelValue(metric_id="DataDriftTable", field_path="metrics.brightness.drift_score", legend="Brightness Drift"),
+                        PanelValue(metric_id="DataDriftTable", field_path="metrics.sharpness.drift_score", legend="Sharpness Drift"),
+                        PanelValue(metric_id="DataDriftTable", field_path="metrics.noise.drift_score", legend="Noise Drift")
+                    ],
+                    plot_type=PlotType.LINE,
+                    size=2
+                )
+            ]
+            proj.save()
+
+        ws.add_report(proj.id, ev_report)
+    except Exception as e:
+        print(f"Evidently workspace persistence note: {e}")
+
     # Save summary JSON
+    result["evidently_report_path"] = evidently_html_path
     summary_path = os.path.join(run_output_dir, "pre_training_audit.json")
     with open(summary_path, "w") as f:
         json.dump(result, f, indent=2)
@@ -114,7 +172,9 @@ def assess_pre_training_drift(
     print("\n" + "="*65)
     print(f"📊 PRE-TRAINING AUDIT VERDICT: {verdict}")
     print(f"📋 Protocol: {action}")
-    print(f"🌐 Standalone Audit Report Generated: {html_path}")
+    if evidently_html_path:
+        print(f"🌐 Evidently AI Interactive Report : {evidently_html_path}")
+    print(f"🌐 Standalone Audit Executive Report: {html_path}")
     print("="*65 + "\n")
 
     return result

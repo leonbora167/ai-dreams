@@ -96,4 +96,11 @@ def generate_cifar_datasets(base_dir: str = "data", samples_per_class: int = 15)
     print("All CIFAR test datasets successfully prepared!")
 
 if __name__ == "__main__":
-    generate_cifar_datasets()
+    import argparse
+    parser = argparse.ArgumentParser(description="Prepare CIFAR-10 reference and drift datasets")
+    parser.add_argument("--samples_per_class", type=int, default=15, help="Number of samples per class for golden baseline (default: 15, use 100+ for large runs)")
+    parser.add_argument("--all", action="store_true", help="Download and prepare full dataset subset (100 samples/class = 1000 images)")
+    args = parser.parse_args()
+
+    count = 100 if args.all else args.samples_per_class
+    generate_cifar_datasets(samples_per_class=count)

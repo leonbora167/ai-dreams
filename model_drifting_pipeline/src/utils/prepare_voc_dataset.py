@@ -1,17 +1,19 @@
 import os
 import json
+from typing import Optional
 import torchvision
 from PIL import Image
 from src.utils.perturbations import ImagePerturbation
 
 VOC_CLASSES = ["person", "car", "bicycle", "bus", "motorcycle", "dog", "cat"]
 
-def generate_voc_detection_datasets(base_dir: str = "data", samples: int = 40):
+def generate_voc_detection_datasets(base_dir: str = "data", samples: Optional[int] = None):
     """
     Downloads VOC 2007 test set and prepares:
     1. data/golden/voc_golden (clean reference detection dataset with annotations)
     2. data/new/voc_camera_degraded (blur + noise on VOC images)
     3. data/new/voc_unlabelled (unlabelled new client detection dataset)
+    If samples is None or 0, prepares all available samples in the dataset.
     """
     print("Preparing PASCAL VOC Detection datasets...")
     voc_data = torchvision.datasets.VOCDetection(
@@ -33,6 +35,10 @@ def generate_voc_detection_datasets(base_dir: str = "data", samples: int = 40):
     os.makedirs(os.path.join(unlabelled_dir, "images"), exist_ok=True)
 
     collected = 0
+    total_available = len(voc_data)
+    target_count = samples if (samples and samples > 0) else total_available
+    print(f"Target preparation count: {target_count} images (out of {total_available} available)...")
+
     for idx, (img, ann) in enumerate(voc_data):
         objs = ann["annotation"].get("object", [])
         if isinstance(objs, dict):
@@ -66,11 +72,18 @@ def generate_voc_detection_datasets(base_dir: str = "data", samples: int = 40):
         deg_img.save(os.path.join(unlabelled_dir, "images", fname))
 
         collected += 1
-        if collected >= samples:
+        if collected >= target_count:
             break
 
     print(f"PASCAL VOC detection datasets successfully prepared! Total images: {collected}")
 
 if __name__ == "__main__":
-    generate_voc_detection_datasets()
+    import argparse
+    parser = argparse.ArgumentParser(description="Prepare VOC detection reference datasets")
+    parser.add_argument("--samples", type=int, default=None, help="Number of VOC samples to prepare (leave empty or use --all for full dataset)")
+    parser.add_argument("--all", action="store_true", help="Download and prepare the complete dataset")
+    args = parser.parse_args()
+
+    num_samples = None if args.all else args.samples
+    generate_voc_detection_datasets(samples=num_samples)
 
