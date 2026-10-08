@@ -66,11 +66,15 @@ Every run automatically outputs:
 # Synthetic noise sweep (0%, 5%, 10%, 20%)
 python -m experiments.training_drift.run_training_drift --model inception_v3 --run_id sweep_01
 
-# Or with your own custom Golden vs Dirty datasets
+# Or with your own custom Golden vs Dirty datasets and fine-tuned hyperparameters:
 python -m experiments.training_drift.run_training_drift \
   --model rf_detr \
   --golden_dataset data/golden/voc_golden \
   --dirty_dataset data/new/voc_camera_degraded \
+  --epochs 20 \
+  --batch_size 32 \
+  --lr 0.0005 \
+  --optimizer adam \
   --run_id custom_voc_train_01
 
 # Launch TensorBoard:

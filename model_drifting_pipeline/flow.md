@@ -171,18 +171,23 @@ python -m src.drift.pre_training_audit \
 Generates a standalone audit report: `results/pre_training_drift/pre_train_audit_01/pre_training_audit_report.html`.
 
 #### 2. Training Dynamics & Loss Drift (During & Post-Training)
-Simulates epoch-by-epoch loss convergence, tracks the dynamic loss gap ($\Delta \text{Loss}$) and accuracy divergence, streams to TensorBoard, and auto-generates a post-training dynamics HTML report:
+Simulates epoch-by-epoch loss convergence, tracks the dynamic loss gap ($\Delta \text{Loss}$) and accuracy divergence, streams to TensorBoard, and auto-generates a post-training dynamics HTML report.
+
+You can configure hyperparameters centrally in `config.yaml` under `training:` (learning rate, epochs, optimizer, batch size) or override them directly via CLI:
 
 ```bash
-# Evaluate training dynamics on Custom Datasets
+# Evaluate training dynamics on Custom Datasets with fine-tuned hyperparameters:
 python -m experiments.training_drift.run_training_drift \
   --model rf_detr \
   --golden_dataset data/golden/voc_golden \
   --dirty_dataset data/new/voc_camera_degraded \
-  --epochs 15 \
+  --epochs 20 \
+  --batch_size 32 \
+  --lr 0.0005 \
+  --optimizer adam \
   --run_id custom_voc_train_01
 ```
-*(For full mathematical definitions and metric comparisons across detection and classification, refer to **[drift_analysis.md](drift_analysis.md)**).*
+*(For full mathematical definitions, metric comparisons across detection/classification, and hyperparameter options, refer to **[drift_analysis.md](drift_analysis.md)**).*
 
 #### Launching the TensorBoard Dashboard:
 TensorBoard logs are saved per run in `results/training_drift/<run_id>/tensorboard_logs`. To view all runs:
