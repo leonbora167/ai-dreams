@@ -253,14 +253,16 @@ Every assessment, pre-training audit, and training run automatically generates s
 4. **Evidently Standalone Interactive Reports**: `results/assessments/<id>/evidently_drift_report.html`
 
 #### B. Launching the Central Evidently UI Dashboard (`localhost:8000`)
-Every inference run and pre-training audit automatically registers into the persistent workspace at `results/evidently_workspace`. To view all projects, metric evolution, and reports in a single local dashboard:
+Every inference assessment, pre-training audit, and real training drift run automatically registers into the persistent workspace at `results/evidently_workspace`. To view all projects, snapshots across runs, and metric evolution in a single local dashboard:
+
 ```bash
 evidently legacy_ui --workspace results/evidently_workspace --port 8000
 ```
-Open **[http://localhost:8000](http://localhost:8000)** in your browser. From here you can:
-- Track projects: `Pre-Training Data Audit - VOC`, `CV Drift - rf_detr`, `CV Drift - inception_v3`.
-- View the **Reports** tab to inspect full interactive distribution overlays, quantile statistics, and data quality metrics.
-- View the **Dashboard** tab to observe drift scores and metric trends across historic runs.
+Open **[http://localhost:8000](http://localhost:8000)** in your browser. From here:
+- **Projects**: Each task has its own dedicated project (e.g. `Pre-Training Data Audit - VOC`, `CV Drift - rf_detr`, `CV Drift - inception_v3`, `Training Dynamics Drift - RF_DETR`).
+- **Multiple Runs as Snapshots**: Every time you execute a run, a new report snapshot is appended to that project. If you execute 4 runs under the same model project, you will see all 4 historical runs in the project timeline and dashboard.
+- **Reports Tab**: Click on any run to inspect interactive data quality distributions, quantile overlays, and drift tables.
+- **Dashboard Tab**: Displays drift score trends and feature distributions across runs over time.
 
 #### C. Launching the TensorBoard Training Dashboard (`localhost:6006`)
 ```bash
