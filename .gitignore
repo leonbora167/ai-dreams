@@ -35,3 +35,5 @@
 /model_drifting_pipeline/src/drift/__pycache__
 /model_drifting_pipeline/src/adapters/models/__pycache__
 *.pyc
+/model_trainings/data
+/model_trainings/output
