@@ -28,6 +28,7 @@
 /comic_scene_2d_3d_v2/output
 /comic_scene_2d_3d_v2/pipeline/__pycache__
 /comic_scene_2d_3d_v2/__pycache__
+<<<<<<< Updated upstream
 /model_drifting_pipeline/data
 /model_drifting_pipeline/results
 /model_drifting_pipeline/src/utils/__pycache__
@@ -37,3 +38,8 @@
 *.pyc
 /model_trainings/data
 /model_trainings/output
+=======
+/comic_scene_low_poly
+>>>>>>> Stashed changes
+/crowd_anomaly_one_shot/handover_v2_gated_two_stage
+/crowd_anomaly_one_shot/scripts
