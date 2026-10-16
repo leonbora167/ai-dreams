@@ -20,20 +20,20 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch
 
-# Ensure SSL certificates are properly recognized across diverse server environments
+# Configure Hugging Face backend to bypass SSL verification on corporate/proxy firewalls
+os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = "1"
 try:
-    import certifi
-    ca_bundle = certifi.where()
-    if not os.environ.get("SSL_CERT_FILE"):
-        os.environ["SSL_CERT_FILE"] = ca_bundle
-    if not os.environ.get("REQUESTS_CA_BUNDLE"):
-        os.environ["REQUESTS_CA_BUNDLE"] = ca_bundle
-except ImportError:
+    import urllib3
+    urllib3.disable_warnings()
+    import requests
+    from huggingface_hub import configure_http_backend
+    configure_http_backend(backend_factory=lambda: (lambda s: (setattr(s, "verify", False), s)[1])(requests.Session()))
+except Exception:
     pass
 
 try:
     ssl._create_default_https_context = ssl._create_unverified_context
-except (AttributeError, Exception):
+except Exception:
     pass
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))

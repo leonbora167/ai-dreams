@@ -1,10 +1,23 @@
 """Model loader and inference routines for SigLIP (Tier 1) and SmolVLM2 (Tier 2)."""
 
+import os
 import time
 from typing import Dict, List, Tuple
 import numpy as np
 import torch
 from PIL import Image
+
+# Ensure Hugging Face backend skips SSL checks on servers behind proxy firewalls
+os.environ["HF_HUB_DISABLE_SSL_VERIFICATION"] = "1"
+try:
+    import urllib3
+    urllib3.disable_warnings()
+    import requests
+    from huggingface_hub import configure_http_backend
+    configure_http_backend(backend_factory=lambda: (lambda s: (setattr(s, "verify", False), s)[1])(requests.Session()))
+except Exception:
+    pass
+
 from transformers import AutoProcessor, AutoModel, AutoModelForImageTextToText
 
 import eval.config_eval as config_eval
