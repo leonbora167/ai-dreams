@@ -198,7 +198,12 @@ def get_embedding_model(model_name: str = "mobilenet", device: str = None):
         dev = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
         if key in ["clip", "clip-vit"]:
             from transformers import CLIPVisionModelWithProjection
-            m = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-base-patch32").to(dev).eval()
+            import src.config as config
+            c_path = config.resolve_model_path("openai/clip-vit-base-patch32")
+            if os.path.isdir(c_path):
+                m = CLIPVisionModelWithProjection.from_pretrained(c_path, local_files_only=True).to(dev).eval()
+            else:
+                m = CLIPVisionModelWithProjection.from_pretrained("openai/clip-vit-base-patch32").to(dev).eval()
         else:
             import torchvision.models as models
             m = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)

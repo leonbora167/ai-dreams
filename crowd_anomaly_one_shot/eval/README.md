@@ -15,6 +15,7 @@ eval/
 ├── models_eval.py             # Model loading and inference routines (SigLIP & SmolVLM2)
 ├── viz_eval.py                # Visual overlay engine with 3-state top-left status HUD
 ├── scripts/
+│   ├── download_weights.py    # Downloads SigLIP & SmolVLM2 into 'weights/' for offline use
 │   ├── download_and_sample.py # Ingestion tool: samples 100 clips & cleans up raw archives
 │   └── run_evaluation.py      # Main benchmark script with verbose tqdm progress bar
 ├── data/
@@ -46,16 +47,25 @@ eval/
 
 ### Step 1: Install Dependencies
 ```bash
-pip install torch torchvision transformers sentencepiece num2words opencv-python tqdm pandas matplotlib kagglehub
+pip install torch torchvision transformers sentencepiece num2words opencv-python tqdm pandas matplotlib kagglehub huggingface_hub
 ```
 
-### Step 2: Download & Sample 100 Balanced Clips
+### Step 2: Download Model Weights (Offline Support)
+To download the Hugging Face model weights directly into `weights/` (useful when working on servers with restricted internet or SSL proxies):
+```bash
+python download_weights.py --models so400m smolvlm2
+```
+* The pipeline automatically checks `weights/` first (`weights/siglip-so400m-patch14-384`, `weights/SmolVLM2-2.2B-Instruct`).
+* If found locally, it runs **100% offline with zero external network or SSL calls**.
+* If not found, it automatically falls back to downloading directly from Hugging Face.
+
+### Step 3: Download & Sample 100 Balanced Clips
 To download and extract 100 balanced clips from XD-Violence and UCF-Crime (automatically pruning the remaining raw archive files to conserve disk space):
 ```bash
 python eval/scripts/download_and_sample.py --dataset all --count 100
 ```
 
-### Step 3: Run Full Evaluation with Verbose Progress Bar
+### Step 4: Run Full Evaluation with Verbose Progress Bar
 ```bash
 python eval/scripts/run_evaluation.py --device cuda
 ```

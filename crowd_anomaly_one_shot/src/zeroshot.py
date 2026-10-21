@@ -40,9 +40,19 @@ def choose_label(prediction: dict, thr: float = 0.5) -> str:
 
 
 def load_clip(name: str = "openai/clip-vit-base-patch32", device: str = None) -> tuple:
-    """Load CLIP model and processor from Hugging Face onto target device."""
+    """Load CLIP model and processor from Hugging Face or local weights directory."""
     from transformers import CLIPModel, CLIPProcessor
+    import src.config as config
     dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    resolved = config.resolve_model_path(name)
+    if os.path.isdir(resolved):
+        print(f"Loading CLIP from local directory: {resolved}")
+        try:
+            model = CLIPModel.from_pretrained(resolved, local_files_only=True).to(dev).eval()
+            processor = CLIPProcessor.from_pretrained(resolved, local_files_only=True)
+            return model, processor
+        except Exception as e:
+            print(f"Warning: Local load failed ({e}), attempting online download...")
     model = CLIPModel.from_pretrained(name).to(dev).eval()
     processor = CLIPProcessor.from_pretrained(name)
     return model, processor
@@ -90,12 +100,24 @@ def classify_clip_frames(model, clip: np.ndarray, text_emb: dict, processor,
 
 
 def load_siglip(name: str = None, device: str = None) -> tuple:
-    """Load Google SigLIP vision-text model and processor onto target device."""
+    """Load Google SigLIP vision-text model and processor onto target device.
+    
+    Checks local 'weights/' directory first. If present, loads entirely offline.
+    """
     from transformers import AutoModel, AutoProcessor
     import src.config as config
     if name is None:
         name = config.TIER1_MODEL_ID
     dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    resolved = config.resolve_model_path(name)
+    if os.path.isdir(resolved):
+        print(f"Loading SigLIP from local directory: {resolved}")
+        try:
+            model = AutoModel.from_pretrained(resolved, torch_dtype=torch.float16, local_files_only=True).to(dev).eval()
+            processor = AutoProcessor.from_pretrained(resolved, local_files_only=True)
+            return model, processor
+        except Exception as e:
+            print(f"Warning: Local load failed ({e}), attempting online download...")
     model = AutoModel.from_pretrained(name, torch_dtype=torch.float16).to(dev).eval()
     processor = AutoProcessor.from_pretrained(name)
     return model, processor
@@ -146,12 +168,29 @@ def classify_siglip_frames(model, clip: np.ndarray, text_emb: dict, processor,
 
 
 def load_vlm(name: str = None, device: str = None) -> tuple:
-    """Load SmolVLM2 non-Chinese multimodal model and processor onto target device."""
+    """Load SmolVLM2 non-Chinese multimodal model and processor onto target device.
+    
+    Checks local 'weights/' directory first. If present, loads entirely offline.
+    """
     from transformers import AutoModelForImageTextToText, AutoProcessor
     import src.config as config
     if name is None:
         name = config.TIER2_MODEL_ID
     dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    resolved = config.resolve_model_path(name)
+    if os.path.isdir(resolved):
+        print(f"Loading SmolVLM2 from local directory: {resolved}")
+        try:
+            model = AutoModelForImageTextToText.from_pretrained(
+                resolved,
+                dtype=torch.float16,
+                _attn_implementation="sdpa",
+                local_files_only=True
+            ).to(dev).eval()
+            processor = AutoProcessor.from_pretrained(resolved, local_files_only=True)
+            return model, processor
+        except Exception as e:
+            print(f"Warning: Local load failed ({e}), attempting online download...")
     model = AutoModelForImageTextToText.from_pretrained(
         name,
         dtype=torch.float16,

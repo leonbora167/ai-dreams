@@ -25,11 +25,31 @@ import eval.prompts_eval as prompts_eval
 
 
 def load_tier1(model_id: str = None, device: str = "cuda") -> Tuple[object, object, torch.Tensor]:
-    """Load Google SigLIP model, processor, and pre-computed text embeddings."""
+    """Load Google SigLIP model, processor, and pre-computed text embeddings.
+    
+    Checks local 'weights/' directory first. If present, loads entirely offline.
+    If not present locally, falls back to automatic download from Hugging Face.
+    """
     if model_id is None:
         model_id = config_eval.TIER1_MODEL_ID
-    processor = AutoProcessor.from_pretrained(model_id)
-    model = AutoModel.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+
+    resolved_path = config_eval.resolve_model_path(model_id)
+    is_local = os.path.isdir(resolved_path)
+
+    if is_local:
+        print(f"Loading Tier 1 (SigLIP) from local directory: {resolved_path}")
+        try:
+            processor = AutoProcessor.from_pretrained(resolved_path, local_files_only=True)
+            model = AutoModel.from_pretrained(resolved_path, torch_dtype=torch.float16, local_files_only=True).to(device)
+        except Exception as e:
+            print(f"Warning: Failed loading local files ({e}). Falling back to Hugging Face Hub...")
+            processor = AutoProcessor.from_pretrained(model_id)
+            model = AutoModel.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+    else:
+        print(f"Local weights not found for '{model_id}' in {config_eval.WEIGHTS_DIR}. Attempting auto-download from Hugging Face...")
+        processor = AutoProcessor.from_pretrained(model_id)
+        model = AutoModel.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+
     model.eval()
 
     # Precompute mean normalized text embeddings for each of the 7 classes
@@ -85,15 +105,44 @@ def classify_tier1(model, processor, text_embs: torch.Tensor,
 
 
 def load_tier2(model_id: str = None, device: str = "cuda") -> Tuple[object, object]:
-    """Load HuggingFace SmolVLM2-2.2B-Instruct multimodal model."""
+    """Load HuggingFace SmolVLM2-2.2B-Instruct multimodal model.
+    
+    Checks local 'weights/' directory first. If present, loads entirely offline.
+    If not present locally, falls back to automatic download from Hugging Face.
+    """
     if model_id is None:
         model_id = config_eval.TIER2_MODEL_ID
-    processor = AutoProcessor.from_pretrained(model_id)
-    model = AutoModelForImageTextToText.from_pretrained(
-        model_id,
-        dtype=torch.float16,
-        _attn_implementation="sdpa"
-    ).to(device)
+
+    resolved_path = config_eval.resolve_model_path(model_id)
+    is_local = os.path.isdir(resolved_path)
+
+    if is_local:
+        print(f"Loading Tier 2 (SmolVLM2) from local directory: {resolved_path}")
+        try:
+            processor = AutoProcessor.from_pretrained(resolved_path, local_files_only=True)
+            model = AutoModelForImageTextToText.from_pretrained(
+                resolved_path,
+                dtype=torch.float16,
+                _attn_implementation="sdpa",
+                local_files_only=True
+            ).to(device)
+        except Exception as e:
+            print(f"Warning: Failed loading local files ({e}). Falling back to Hugging Face Hub...")
+            processor = AutoProcessor.from_pretrained(model_id)
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_id,
+                dtype=torch.float16,
+                _attn_implementation="sdpa"
+            ).to(device)
+    else:
+        print(f"Local weights not found for '{model_id}' in {config_eval.WEIGHTS_DIR}. Attempting auto-download from Hugging Face...")
+        processor = AutoProcessor.from_pretrained(model_id)
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_id,
+            dtype=torch.float16,
+            _attn_implementation="sdpa"
+        ).to(device)
+
     model.eval()
     return model, processor
 
