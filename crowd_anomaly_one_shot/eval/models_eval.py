@@ -18,6 +18,12 @@ try:
 except Exception:
     pass
 
+import sys
+try:
+    import torchaudio
+except Exception:
+    sys.modules["torchaudio"] = None
+
 from transformers import AutoProcessor, AutoModel, AutoModelForImageTextToText
 
 import eval.config_eval as config_eval
@@ -39,6 +45,45 @@ def extract_feature_tensor(feats):
     return feats
 
 
+def get_model_dtype_kwargs():
+    """Return model dtype keyword argument compatible with transformers 4.x and 5.x."""
+    import transformers
+    try:
+        major_ver = int(transformers.__version__.split(".")[0])
+    except Exception:
+        major_ver = 5
+    return {"dtype": torch.float16} if major_ver >= 5 else {"torch_dtype": torch.float16}
+
+
+def patch_smolvlm_inputs_merger(model):
+    """Ensure SmolVLM inputs_merger works reliably across transformers 4.x and 5.x.
+    
+    In transformers >= 5.20, SmolVLMModel.inputs_merger introduced a regression by attempting
+    to reshape image hidden states using vision_config.patch_size, causing:
+    RuntimeError: shape '[-1, 14, 2048]' is invalid for input of size ...
+    This patch installs the canonical masked_scatter merger if needed.
+    """
+    inner_model = getattr(model, "model", model)
+    if hasattr(inner_model, "inputs_merger"):
+        import types
+        def safe_inputs_merger(self, input_ids, inputs_embeds, image_hidden_states):
+            if input_ids is None:
+                special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                    torch.full((), self.config.image_token_id, dtype=torch.long, device=inputs_embeds.device)
+                )
+                special_image_mask = special_image_mask.all(-1)
+            else:
+                special_image_mask = input_ids == self.config.image_token_id
+
+            special_image_mask = special_image_mask.unsqueeze(-1).to(inputs_embeds.device)
+            image_hidden_states = image_hidden_states.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_hidden_states)
+            return inputs_embeds
+
+        inner_model.inputs_merger = types.MethodType(safe_inputs_merger, inner_model)
+    return model
+
+
 def load_tier1(model_id: str = None, device: str = "cuda") -> Tuple[object, object, torch.Tensor]:
     """Load Google SigLIP model, processor, and pre-computed text embeddings.
     
@@ -51,19 +96,20 @@ def load_tier1(model_id: str = None, device: str = "cuda") -> Tuple[object, obje
     resolved_path = config_eval.resolve_model_path(model_id)
     is_local = os.path.isdir(resolved_path)
 
+    dtype_kwargs = get_model_dtype_kwargs()
     if is_local:
         print(f"Loading Tier 1 (SigLIP) from local directory: {resolved_path}")
         try:
             processor = AutoProcessor.from_pretrained(resolved_path, local_files_only=True)
-            model = AutoModel.from_pretrained(resolved_path, torch_dtype=torch.float16, local_files_only=True).to(device)
+            model = AutoModel.from_pretrained(resolved_path, local_files_only=True, **dtype_kwargs).to(device)
         except Exception as e:
             print(f"Warning: Failed loading local files ({e}). Falling back to Hugging Face Hub...")
             processor = AutoProcessor.from_pretrained(model_id)
-            model = AutoModel.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+            model = AutoModel.from_pretrained(model_id, **dtype_kwargs).to(device)
     else:
         print(f"Local weights not found for '{model_id}' in {config_eval.WEIGHTS_DIR}. Attempting auto-download from Hugging Face...")
         processor = AutoProcessor.from_pretrained(model_id)
-        model = AutoModel.from_pretrained(model_id, torch_dtype=torch.float16).to(device)
+        model = AutoModel.from_pretrained(model_id, **dtype_kwargs).to(device)
 
     model.eval()
 
@@ -132,6 +178,7 @@ def load_tier2(model_id: str = None, device: str = "cuda") -> Tuple[object, obje
 
     resolved_path = config_eval.resolve_model_path(model_id)
     is_local = os.path.isdir(resolved_path)
+    dtype_kwargs = get_model_dtype_kwargs()
 
     if is_local:
         print(f"Loading Tier 2 (SmolVLM2) from local directory: {resolved_path}")
@@ -139,27 +186,28 @@ def load_tier2(model_id: str = None, device: str = "cuda") -> Tuple[object, obje
             processor = AutoProcessor.from_pretrained(resolved_path, local_files_only=True)
             model = AutoModelForImageTextToText.from_pretrained(
                 resolved_path,
-                dtype=torch.float16,
                 _attn_implementation="sdpa",
-                local_files_only=True
+                local_files_only=True,
+                **dtype_kwargs
             ).to(device)
         except Exception as e:
             print(f"Warning: Failed loading local files ({e}). Falling back to Hugging Face Hub...")
             processor = AutoProcessor.from_pretrained(model_id)
             model = AutoModelForImageTextToText.from_pretrained(
                 model_id,
-                dtype=torch.float16,
-                _attn_implementation="sdpa"
+                _attn_implementation="sdpa",
+                **dtype_kwargs
             ).to(device)
     else:
         print(f"Local weights not found for '{model_id}' in {config_eval.WEIGHTS_DIR}. Attempting auto-download from Hugging Face...")
         processor = AutoProcessor.from_pretrained(model_id)
         model = AutoModelForImageTextToText.from_pretrained(
             model_id,
-            dtype=torch.float16,
-            _attn_implementation="sdpa"
+            _attn_implementation="sdpa",
+            **dtype_kwargs
         ).to(device)
 
+    model = patch_smolvlm_inputs_merger(model)
     model.eval()
     return model, processor
 

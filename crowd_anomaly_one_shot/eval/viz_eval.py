@@ -127,7 +127,9 @@ def render_annotated_video(frames: List[np.ndarray], frame_states: List[Dict],
         return
     h, w = frames[0].shape[:2]
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
 
     tot_sec = len(frames) / fps

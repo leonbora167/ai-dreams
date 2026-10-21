@@ -4,6 +4,13 @@ Implements CLIP frame classifier and small video VLM interfaces, score normaliza
 temporal aggregation (mean vs max), and label decision with confidence thresholding.
 """
 
+import os
+import sys
+try:
+    import torchaudio
+except Exception:
+    sys.modules["torchaudio"] = None
+
 import cv2
 import numpy as np
 import torch
@@ -43,6 +50,45 @@ def extract_feature_tensor(feats):
     elif isinstance(feats, (tuple, list)):
         return feats[0]
     return feats
+
+
+def get_model_dtype_kwargs():
+    """Return model dtype keyword argument compatible with transformers 4.x and 5.x."""
+    import transformers
+    try:
+        major_ver = int(transformers.__version__.split(".")[0])
+    except Exception:
+        major_ver = 5
+    return {"dtype": torch.float16} if major_ver >= 5 else {"torch_dtype": torch.float16}
+
+
+def patch_smolvlm_inputs_merger(model):
+    """Ensure SmolVLM inputs_merger works reliably across transformers 4.x and 5.x.
+    
+    In transformers >= 5.20, SmolVLMModel.inputs_merger introduced a regression by attempting
+    to reshape image hidden states using vision_config.patch_size, causing:
+    RuntimeError: shape '[-1, 14, 2048]' is invalid for input of size ...
+    This patch installs the canonical masked_scatter merger if needed.
+    """
+    inner_model = getattr(model, "model", model)
+    if hasattr(inner_model, "inputs_merger"):
+        import types
+        def safe_inputs_merger(self, input_ids, inputs_embeds, image_hidden_states):
+            if input_ids is None:
+                special_image_mask = inputs_embeds == self.get_input_embeddings()(
+                    torch.full((), self.config.image_token_id, dtype=torch.long, device=inputs_embeds.device)
+                )
+                special_image_mask = special_image_mask.all(-1)
+            else:
+                special_image_mask = input_ids == self.config.image_token_id
+
+            special_image_mask = special_image_mask.unsqueeze(-1).to(inputs_embeds.device)
+            image_hidden_states = image_hidden_states.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_hidden_states)
+            return inputs_embeds
+
+        inner_model.inputs_merger = types.MethodType(safe_inputs_merger, inner_model)
+    return model
 
 
 def choose_label(prediction: dict, thr: float = 0.5) -> str:
@@ -126,16 +172,17 @@ def load_siglip(name: str = None, device: str = None) -> tuple:
     if name is None:
         name = config.TIER1_MODEL_ID
     dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    dtype_kwargs = get_model_dtype_kwargs()
     resolved = config.resolve_model_path(name)
     if os.path.isdir(resolved):
         print(f"Loading SigLIP from local directory: {resolved}")
         try:
-            model = AutoModel.from_pretrained(resolved, torch_dtype=torch.float16, local_files_only=True).to(dev).eval()
+            model = AutoModel.from_pretrained(resolved, local_files_only=True, **dtype_kwargs).to(dev).eval()
             processor = AutoProcessor.from_pretrained(resolved, local_files_only=True)
             return model, processor
         except Exception as e:
             print(f"Warning: Local load failed ({e}), attempting online download...")
-    model = AutoModel.from_pretrained(name, torch_dtype=torch.float16).to(dev).eval()
+    model = AutoModel.from_pretrained(name, **dtype_kwargs).to(dev).eval()
     processor = AutoProcessor.from_pretrained(name)
     return model, processor
 
@@ -196,26 +243,29 @@ def load_vlm(name: str = None, device: str = None) -> tuple:
     if name is None:
         name = config.TIER2_MODEL_ID
     dev = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+    dtype_kwargs = get_model_dtype_kwargs()
     resolved = config.resolve_model_path(name)
     if os.path.isdir(resolved):
         print(f"Loading SmolVLM2 from local directory: {resolved}")
         try:
             model = AutoModelForImageTextToText.from_pretrained(
                 resolved,
-                dtype=torch.float16,
                 _attn_implementation="sdpa",
-                local_files_only=True
+                local_files_only=True,
+                **dtype_kwargs
             ).to(dev).eval()
             processor = AutoProcessor.from_pretrained(resolved, local_files_only=True)
+            model = patch_smolvlm_inputs_merger(model)
             return model, processor
         except Exception as e:
             print(f"Warning: Local load failed ({e}), attempting online download...")
     model = AutoModelForImageTextToText.from_pretrained(
         name,
-        dtype=torch.float16,
-        _attn_implementation="sdpa"
+        _attn_implementation="sdpa",
+        **dtype_kwargs
     ).to(dev).eval()
     processor = AutoProcessor.from_pretrained(name)
+    model = patch_smolvlm_inputs_merger(model)
     return model, processor
 
 

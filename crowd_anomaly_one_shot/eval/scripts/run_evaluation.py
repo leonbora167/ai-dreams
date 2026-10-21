@@ -446,14 +446,14 @@ def main():
     parser = argparse.ArgumentParser(description="Run Evaluation Suite with SigLIP & SmolVLM2.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Inference device (cuda or cpu).")
-    parser.add_argument("--max_videos", type=int, default=None,
+    parser.add_argument("--max_videos", "--max-videos", type=int, default=None,
                         help="Limit total number of evaluation videos to process.")
-    parser.add_argument("--sample_per_class", type=int, default=None,
+    parser.add_argument("--sample_per_class", "--sample-per-class", type=int, default=None,
                         help="Sample N videos per class for balanced benchmarking.")
     parser.add_argument("--backbone", default=config_eval.TIER1_BACKBONE_NAME,
                         choices=["base", "so400m", "large"] + list(config_eval.SIGLIP_BACKBONES.values()),
                         help="SigLIP Tier 1 backbone ('so400m' default, 'base', or 'large').")
-    parser.add_argument("--num_frames_vlm", type=int, default=config_eval.SMOLVLM2_NUM_FRAMES,
+    parser.add_argument("--num_frames_vlm", "--num-frames-vlm", type=int, default=config_eval.SMOLVLM2_NUM_FRAMES,
                         help="Number of frames for SmolVLM2 (1=snapshot, 4=sequence, 16=storyboard grid).")
     parser.add_argument("--shuffle", action="store_true", default=False,
                         help="Shuffle videos to interleave classes and datasets.")
