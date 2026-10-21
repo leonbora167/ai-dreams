@@ -24,6 +24,21 @@ import eval.config_eval as config_eval
 import eval.prompts_eval as prompts_eval
 
 
+def extract_feature_tensor(feats):
+    """Safely extract feature tensor from raw torch.Tensor or ModelOutput (BaseModelOutputWithPooling).
+    
+    Compatible with both older transformers (<5.0) which return raw Tensor
+    and newer transformers (>=5.0) which return BaseModelOutputWithPooling.
+    """
+    if hasattr(feats, "pooler_output") and feats.pooler_output is not None:
+        return feats.pooler_output
+    elif hasattr(feats, "last_hidden_state") and feats.last_hidden_state is not None:
+        return feats.last_hidden_state
+    elif isinstance(feats, (tuple, list)):
+        return feats[0]
+    return feats
+
+
 def load_tier1(model_id: str = None, device: str = "cuda") -> Tuple[object, object, torch.Tensor]:
     """Load Google SigLIP model, processor, and pre-computed text embeddings.
     
@@ -59,6 +74,7 @@ def load_tier1(model_id: str = None, device: str = "cuda") -> Tuple[object, obje
             caps = prompts_eval.SIGLIP_CAPTIONS[c]
             inputs = processor(text=caps, padding="max_length", return_tensors="pt").to(device)
             txt_feats = model.get_text_features(**inputs)
+            txt_feats = extract_feature_tensor(txt_feats)
             txt_feats = txt_feats / txt_feats.norm(dim=-1, keepdim=True)
             mean_feat = txt_feats.mean(dim=0, keepdim=True)
             mean_feat = mean_feat / mean_feat.norm(dim=-1, keepdim=True)
@@ -83,6 +99,7 @@ def classify_tier1(model, processor, text_embs: torch.Tensor,
 
     with torch.no_grad():
         img_feats = model.get_image_features(**inputs)
+        img_feats = extract_feature_tensor(img_feats)
         img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
         # Average image features across the clip
         clip_feat = img_feats.mean(dim=0, keepdim=True)

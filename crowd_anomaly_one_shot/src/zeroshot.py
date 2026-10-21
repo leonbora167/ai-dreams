@@ -30,6 +30,21 @@ def scores_to_prediction(class_scores: dict, classes: list, classifier_name: str
     }
 
 
+def extract_feature_tensor(feats):
+    """Safely extract feature tensor from raw torch.Tensor or ModelOutput (BaseModelOutputWithPooling).
+    
+    Compatible with both older transformers (<5.0) which return raw Tensor
+    and newer transformers (>=5.0) which return BaseModelOutputWithPooling.
+    """
+    if hasattr(feats, "pooler_output") and feats.pooler_output is not None:
+        return feats.pooler_output
+    elif hasattr(feats, "last_hidden_state") and feats.last_hidden_state is not None:
+        return feats.last_hidden_state
+    elif isinstance(feats, (tuple, list)):
+        return feats[0]
+    return feats
+
+
 def choose_label(prediction: dict, thr: float = 0.5) -> str:
     """Return top alert label if above confidence threshold; otherwise return 'none'."""
     top_cls = prediction.get("top", "none")
@@ -66,6 +81,7 @@ def text_embeddings(model, class_phrases: dict, processor, device: str = None) -
         inputs = processor(text=phrases, return_tensors="pt", padding=True).to(dev)
         with torch.no_grad():
             text_feats = model.get_text_features(**inputs)
+            text_feats = extract_feature_tensor(text_feats)
             text_feats = text_feats / text_feats.norm(dim=-1, keepdim=True)
             avg_feat = text_feats.mean(dim=0)
             avg_feat = avg_feat / avg_feat.norm(dim=-1)
@@ -85,6 +101,7 @@ def classify_clip_frames(model, clip: np.ndarray, text_emb: dict, processor,
     inputs = processor(images=rgb_frames, return_tensors="pt").to(dev)
     with torch.no_grad():
         img_feats = model.get_image_features(**inputs)
+        img_feats = extract_feature_tensor(img_feats)
         img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
         img_np = img_feats.cpu().numpy()  # (T, D)
 
@@ -131,6 +148,7 @@ def siglip_text_embeddings(model, class_phrases: dict, processor, device: str = 
         inputs = processor(text=phrases, return_tensors="pt", padding="max_length").to(dev)
         with torch.no_grad():
             text_feats = model.get_text_features(**inputs)
+            text_feats = extract_feature_tensor(text_feats)
             text_feats = text_feats / text_feats.norm(dim=-1, keepdim=True)
             avg_feat = text_feats.mean(dim=0)
             avg_feat = avg_feat / avg_feat.norm(dim=-1)
@@ -154,6 +172,7 @@ def classify_siglip_frames(model, clip: np.ndarray, text_emb: dict, processor,
 
     with torch.no_grad():
         img_feats = model.get_image_features(**inputs)
+        img_feats = extract_feature_tensor(img_feats)
         img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
         img_np = img_feats.cpu().numpy()
 
