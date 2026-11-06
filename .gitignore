@@ -44,3 +44,5 @@
 /crowd_anomaly_one_shot/handover_v2_gated_two_stage
 /crowd_anomaly_one_shot/scripts
 /multi-feature-track-vss/data
+/crowd_counting/rnd_crowd/images
+/crowd_counting/rnd_crowd/weights
