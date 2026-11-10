@@ -1,0 +1,149 @@
+[
+  {
+    "method": "LWCC_CSRNet",
+    "image": "auditorium1.jpg",
+    "count": 987.13,
+    "raw_count": 987.13,
+    "threshold": 0.0,
+    "overlay": "rnd_crowd/images/auditorium1_CSRNet_overlay.jpg"
+  },
+  {
+    "method": "LWCC_DM-Count",
+    "image": "auditorium1.jpg",
+    "count": 111.79,
+    "raw_count": 111.79,
+    "threshold": 0.0,
+    "overlay": "rnd_crowd/images/auditorium1_DM-Count_overlay.jpg"
+  },
+  {
+    "method": "P2PNet",
+    "image": "auditorium1.jpg",
+    "count": 104,
+    "threshold": 0.5,
+    "overlay": "rnd_crowd/images/auditorium1_P2PNet_overlay.jpg"
+  },
+  {
+    "method": "APGCC",
+    "image": "auditorium1.jpg",
+    "count": 0,
+    "threshold": 0.5,
+    "overlay": "rnd_crowd/images/auditorium1_APGCC_overlay.jpg"
+  },
+  {
+    "method": "CLTR",
+    "image": "auditorium1.jpg",
+    "count": 0,
+    "threshold": 0.35,
+    "overlay": "rnd_crowd/images/auditorium1_CLTR_overlay.jpg"
+  },
+  {
+    "method": "FIDTM",
+    "image": "auditorium1.jpg",
+    "status": "skipped",
+    "reason": "Pretrained weights are hosted exclusively on Baidu-Disk (requires account) and an expired OneDrive link. Specify a local checkpoint via --weight if available."
+  },
+  {
+    "method": "CCTrans",
+    "image": "auditorium1.jpg",
+    "status": "skipped",
+    "reason": "Pretrained weights are hosted exclusively on Baidu-Disk (requires Chinese mobile registration, code se59). Specify local weights via --weight if available."
+  },
+  {
+    "method": "LWCC_CSRNet",
+    "image": "auditorium2.jpg",
+    "count": 22.22,
+    "raw_count": 22.22,
+    "threshold": 0.0,
+    "overlay": "rnd_crowd/images/auditorium2_CSRNet_overlay.jpg"
+  },
+  {
+    "method": "LWCC_DM-Count",
+    "image": "auditorium2.jpg",
+    "count": 3.77,
+    "raw_count": 3.77,
+    "threshold": 0.0,
+    "overlay": "rnd_crowd/images/auditorium2_DM-Count_overlay.jpg"
+  },
+  {
+    "method": "P2PNet",
+    "image": "auditorium2.jpg",
+    "count": 1,
+    "threshold": 0.5,
+    "overlay": "rnd_crowd/images/auditorium2_P2PNet_overlay.jpg"
+  },
+  {
+    "method": "APGCC",
+    "image": "auditorium2.jpg",
+    "count": 0,
+    "threshold": 0.5,
+    "overlay": "rnd_crowd/images/auditorium2_APGCC_overlay.jpg"
+  },
+  {
+    "method": "CLTR",
+    "image": "auditorium2.jpg",
+    "count": 0,
+    "threshold": 0.35,
+    "overlay": "rnd_crowd/images/auditorium2_CLTR_overlay.jpg"
+  },
+  {
+    "method": "FIDTM",
+    "image": "auditorium2.jpg",
+    "status": "skipped",
+    "reason": "Pretrained weights are hosted exclusively on Baidu-Disk (requires account) and an expired OneDrive link. Specify a local checkpoint via --weight if available."
+  },
+  {
+    "method": "CCTrans",
+    "image": "auditorium2.jpg",
+    "status": "skipped",
+    "reason": "Pretrained weights are hosted exclusively on Baidu-Disk (requires Chinese mobile registration, code se59). Specify local weights via --weight if available."
+  },
+  {
+    "method": "LWCC_CSRNet",
+    "image": "auditorium3.jpg",
+    "count": 221.52,
+    "raw_count": 221.52,
+    "threshold": 0.0,
+    "overlay": "rnd_crowd/images/auditorium3_CSRNet_overlay.jpg"
+  },
+  {
+    "method": "LWCC_DM-Count",
+    "image": "auditorium3.jpg",
+    "count": 205.66,
+    "raw_count": 205.66,
+    "threshold": 0.0,
+    "overlay": "rnd_crowd/images/auditorium3_DM-Count_overlay.jpg"
+  },
+  {
+    "method": "P2PNet",
+    "image": "auditorium3.jpg",
+    "count": 215,
+    "threshold": 0.5,
+    "overlay": "rnd_crowd/images/auditorium3_P2PNet_overlay.jpg"
+  },
+  {
+    "method": "APGCC",
+    "image": "auditorium3.jpg",
+    "count": 98,
+    "threshold": 0.5,
+    "overlay": "rnd_crowd/images/auditorium3_APGCC_overlay.jpg"
+  },
+  {
+    "method": "CLTR",
+    "image": "auditorium3.jpg",
+    "count": 288,
+    "threshold": 0.35,
+    "overlay": "rnd_crowd/images/auditorium3_CLTR_overlay.jpg"
+  },
+  {
+    "method": "FIDTM",
+    "image": "auditorium3.jpg",
+    "status": "skipped",
+    "reason": "Pretrained weights are hosted exclusively on Baidu-Disk (requires account) and an expired OneDrive link. Specify a local checkpoint via --weight if available."
+  },
+  {
+    "method": "CCTrans",
+    "image": "auditorium3.jpg",
+    "status": "skipped",
+    "reason": "Pretrained weights are hosted exclusively on Baidu-Disk (requires Chinese mobile registration, code se59). Specify local weights via --weight if available."
+  }
+]
