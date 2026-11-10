@@ -304,8 +304,21 @@ class LocalVLMQA:
             end_sec = rec.get("end_sec", 0.0)
             start_f = rec.get("start_frame", 0)
             end_f = rec.get("end_frame", 0)
-            time_str = f"{start_sec:.1f}s to {end_sec:.1f}s ({format_timestamp(start_sec)} - {format_timestamp(end_sec)})"
-            context_lines.append(f"- Candidate #{i} -> Track ID: #{track_id}, Timeline: {time_str}, Frames: {start_f}-{end_f}")
+            
+            intervals_desc = ""
+            intervals_json = rec.get("intervals_json", "")
+            if intervals_json:
+                try:
+                    inv_list = json.loads(intervals_json)
+                    if isinstance(inv_list, list) and len(inv_list) > 1:
+                        intervals_desc = " (Intervals: " + ", ".join(
+                            [f"{iv['start_sec']:.1f}s-{iv['end_sec']:.1f}s" for iv in inv_list]
+                        ) + ")"
+                except Exception:
+                    pass
+
+            time_str = f"{start_sec:.1f}s to {end_sec:.1f}s ({format_timestamp(start_sec)} - {format_timestamp(end_sec)}){intervals_desc}"
+            context_lines.append(f"- Candidate #{i} -> Global Track ID: #{track_id}, Timeline: {time_str}, Frames: {start_f}-{end_f}")
 
             crop_path = Path(rec.get("best_crop_path", ""))
             if crop_path.exists():

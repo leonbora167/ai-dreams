@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 import cv2
@@ -29,7 +30,24 @@ def print_results(results: list[dict], search_type: str) -> None:
         
         start_sec = res.get("start_sec", 0.0)
         end_sec = res.get("end_sec", 0.0)
-        time_str = f"{format_timestamp(start_sec)} - {format_timestamp(end_sec)} ({start_sec:.1f}s - {end_sec:.1f}s)"
+        
+        # Check if intervals_json is present
+        intervals_str = ""
+        intervals_json = res.get("intervals_json", "")
+        if intervals_json:
+            try:
+                inv_list = json.loads(intervals_json)
+                if isinstance(inv_list, list) and len(inv_list) > 1:
+                    parts = []
+                    for iv in inv_list:
+                        s_str = format_timestamp(iv['start_sec'])
+                        e_str = format_timestamp(iv['end_sec'])
+                        parts.append(f"[{s_str} - {e_str}]")
+                    intervals_str = " | Intervals: " + ", ".join(parts)
+            except Exception:
+                pass
+
+        time_str = f"{format_timestamp(start_sec)} - {format_timestamp(end_sec)} ({start_sec:.1f}s - {end_sec:.1f}s){intervals_str}"
         
         start_f = res.get("start_frame", 0)
         end_f = res.get("end_frame", 0)
@@ -38,7 +56,7 @@ def print_results(results: list[dict], search_type: str) -> None:
         has_face = res.get("has_face", False)
         face_crop = res.get("face_crop_path", "None")
 
-        print(f"[{rank}] Track ID: #{track_id} | {score_str}")
+        print(f"[{rank}] Global Track ID: #{track_id} | {score_str}")
         print(f"    Timeline    : {time_str} (Frames: {start_f} -> {end_f})")
         print(f"    Body Crop   : {best_crop}")
         print(f"    Face Crop   : {face_crop if has_face else 'No face detected'}")
