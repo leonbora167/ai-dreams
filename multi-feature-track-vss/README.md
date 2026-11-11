@@ -43,11 +43,12 @@ flowchart TD
         Q_FAC["Reference Face / Tight Face Crop"] -->|Padded SCRFD + Direct ArcFace Fallback| RES4["Ranked Matching Global Tracks"]
     end
 
-    subgraph VLM_RAG ["6. Hybrid Scene + Track RAG Q&A (vlm_qa.py)"]
-        USR_Q["User Question"] --> ROUTE{"Counting/Scene Query<br/>or Mentioned Track ID?"}
-        ROUTE -- "Counting / Posture / Scene" --> AGG["DB Pose Stats + Top Scene Keyframes<br/>+ Expanded Track Crops"]
-        ROUTE -- "Person / Timeline" --> TRK_RET["Explicit ID Lookup + Top-K SigLIP Tracks"]
-        AGG & TRK_RET --> BACKEND{"VLM Backend Selector"}
+    subgraph VLM_RAG ["6. 3-Route Semantic RAG Q&A (vlm_qa.py)"]
+        USR_Q["User Question"] --> ROUTE{"QueryRouter<br/>(ID Regex + SigLIP Anchor Sim)"}
+        ROUTE -- "track_id" --> RT_ID["Exact Global Track Lookup<br/>+ Multi-Interval Timelines"]
+        ROUTE -- "counting" --> RT_CNT["DB Pose Stats + Top Scene Keyframes<br/>+ Expanded Person Crops"]
+        ROUTE -- "person_forensic" --> RT_FOR["Focused Top-5 Zoomed Person Crops<br/>(No scene-frame noise)"]
+        RT_ID & RT_CNT & RT_FOR --> BACKEND{"VLM Backend Selector"}
         BACKEND -- Local --> HF["HuggingFace Local Models<br/>- SmolVLM2-2.2B-Instruct<br/>- Llama-3.2-11B-Vision (--quantize 4bit)<br/>- Phi-4-multimodal (--attn-impl sdpa|eager)"]
         BACKEND -- Remote --> SVR["OpenAI-Compatible Remote Server<br/>- NVIDIA Nemotron / vLLM / NIM / Ollama"]
         HF & SVR --> FINAL_ANS["Grounded Answer with Counts, Tracks & Timestamps"]
