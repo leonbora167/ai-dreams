@@ -143,17 +143,15 @@ class AuditoriumTracker:
 
                 # Check if reached activation threshold (24 frames)
                 if len(track_info['tentative_entries']) >= self.track_activation_threshold:
-                    best_crop = None
-                    best_score = -1.0
-
-                    for entry in track_info['tentative_entries']:
+                    scored_entries = []
+                    for idx, entry in enumerate(track_info['tentative_entries']):
                         score = self._compute_quality(entry['crop'], entry['bbox'], entry['confidence'])
-                        if score > best_score:
-                            best_score = score
-                            best_crop = entry['crop']
+                        scored_entries.append((score, idx, entry['crop']))
 
-                    if best_crop is None and len(track_info['tentative_entries']) > 0:
-                        best_crop = track_info['tentative_entries'][-1]['crop']
+                    scored_entries.sort(key=lambda x: x[0], reverse=True)
+                    best_crop = scored_entries[0][2] if scored_entries else None
+                    # Keep up to 5 top-quality crops spread across the buffer for face detection
+                    top_crops = [item[2] for item in scored_entries[:5]]
 
                     track_info['indexed'] = True
                     # Release crops from RAM to prevent unbounded memory growth
@@ -162,6 +160,7 @@ class AuditoriumTracker:
                     newly_confirmed_tracks.append({
                         'track_id': track_id,
                         'best_crop': best_crop,
+                        'top_crops': top_crops,
                         'start_frame': track_info['start_frame'],
                         'start_sec': track_info['start_sec'],
                         'trajectory': list(track_info['trajectory'])
