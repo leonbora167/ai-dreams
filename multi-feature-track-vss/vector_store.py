@@ -5,6 +5,8 @@ import pyarrow as pa
 
 TABLE_NAME = "person_tracks"
 SCENE_TABLE_NAME = "scene_frames"
+OBJECT_TABLE_NAME = "object_tracks"
+VIDEO_EVENT_TABLE_NAME = "video_events"
 
 
 def build_track_schema(siglip_dim: int = 768) -> pa.Schema:
@@ -41,6 +43,42 @@ def build_scene_schema(siglip_dim: int = 768) -> pa.Schema:
     ])
 
 
+def build_object_schema(siglip_dim: int = 768) -> pa.Schema:
+    return pa.schema([
+        pa.field("object_id", pa.string()),
+        pa.field("label", pa.string()),
+        pa.field("siglip_vector", pa.list_(pa.float32(), siglip_dim)),
+        pa.field("owner_track_id", pa.string()),
+        pa.field("owner_crop_path", pa.string()),
+        pa.field("status", pa.string()),
+        pa.field("abandoned_since_sec", pa.float64()),
+        pa.field("abandoned_frame_path", pa.string()),
+        pa.field("start_sec", pa.float64()),
+        pa.field("end_sec", pa.float64()),
+        pa.field("start_frame", pa.int64()),
+        pa.field("end_frame", pa.int64()),
+        pa.field("best_crop_path", pa.string()),
+        pa.field("intervals_json", pa.string()),
+        pa.field("video_source", pa.string()),
+    ])
+
+
+def build_video_event_schema(siglip_dim: int = 768) -> pa.Schema:
+    return pa.schema([
+        pa.field("chunk_id", pa.string()),
+        pa.field("start_sec", pa.float64()),
+        pa.field("end_sec", pa.float64()),
+        pa.field("trigger_reason", pa.string()),
+        pa.field("summary_text", pa.string()),
+        pa.field("tile_notes_json", pa.string()),
+        pa.field("referenced_track_ids_json", pa.string()),
+        pa.field("referenced_object_ids_json", pa.string()),
+        pa.field("keyframe_path", pa.string()),
+        pa.field("siglip_vector", pa.list_(pa.float32(), siglip_dim)),
+        pa.field("video_source", pa.string()),
+    ])
+
+
 class AuditoriumVectorDB:
     def __init__(self, db_path: str = "data/lancedb", recreate: bool = False, siglip_dim: int = 768):
         self.db_path = Path(db_path)
@@ -50,12 +88,20 @@ class AuditoriumVectorDB:
 
         track_schema = build_track_schema(siglip_dim)
         scene_schema = build_scene_schema(siglip_dim)
+        object_schema = build_object_schema(siglip_dim)
+        event_schema = build_video_event_schema(siglip_dim)
 
         self.table = self._open_or_create_table(
             TABLE_NAME, track_schema, required_cols={"intervals_json", "pose_label", "appearance_crops_json"}, recreate=recreate
         )
         self.scene_table = self._open_or_create_table(
             SCENE_TABLE_NAME, scene_schema, required_cols={"frame_path", "standing_count"}, recreate=recreate
+        )
+        self.object_table = self._open_or_create_table(
+            OBJECT_TABLE_NAME, object_schema, required_cols={"object_id", "owner_track_id", "status", "abandoned_since_sec"}, recreate=recreate
+        )
+        self.event_table = self._open_or_create_table(
+            VIDEO_EVENT_TABLE_NAME, event_schema, required_cols={"chunk_id", "summary_text", "referenced_track_ids_json"}, recreate=recreate
         )
 
     def _open_or_create_table(self, name: str, schema: pa.Schema, required_cols: set[str], recreate: bool):
@@ -252,3 +298,143 @@ class AuditoriumVectorDB:
             "peak_simultaneous_standing": max_standing_frame,
             "peak_simultaneous_sitting": max_sitting_frame,
         }
+
+    # --- Phase 1: Object Tracking & Ownership CRUD / Search ---
+
+    def insert_object(self, record: dict) -> None:
+        intervals = record.get("intervals", None)
+        if intervals is None:
+            intervals_json = record.get("intervals_json", "")
+            if not intervals_json:
+                intervals_json = json.dumps([{
+                    "start_sec": float(record.get("start_sec", 0.0)),
+                    "end_sec": float(record.get("end_sec", 0.0)),
+                    "start_frame": int(record.get("start_frame", 0)),
+                    "end_frame": int(record.get("end_frame", 0)),
+                }])
+        else:
+            intervals_json = json.dumps(intervals) if isinstance(intervals, list) else str(intervals)
+
+        row = {
+            "object_id": str(record["object_id"]),
+            "label": str(record.get("label", "object")),
+            "siglip_vector": [float(x) for x in record["siglip_vector"]],
+            "owner_track_id": str(record.get("owner_track_id", "Unknown")),
+            "owner_crop_path": str(record.get("owner_crop_path", "")),
+            "status": str(record.get("status", "attended")),
+            "abandoned_since_sec": float(record.get("abandoned_since_sec", -1.0)),
+            "abandoned_frame_path": str(record.get("abandoned_frame_path", "")),
+            "start_sec": float(record.get("start_sec", 0.0)),
+            "end_sec": float(record.get("end_sec", 0.0)),
+            "start_frame": int(record.get("start_frame", 0)),
+            "end_frame": int(record.get("end_frame", 0)),
+            "best_crop_path": str(record.get("best_crop_path", "")),
+            "intervals_json": intervals_json,
+            "video_source": str(record.get("video_source", "")),
+        }
+        self.object_table.add([row])
+
+    def update_object(
+        self,
+        object_id: str,
+        owner_track_id: str | None = None,
+        owner_crop_path: str | None = None,
+        status: str | None = None,
+        abandoned_since_sec: float | None = None,
+        abandoned_frame_path: str | None = None,
+        end_sec: float | None = None,
+        end_frame: int | None = None,
+        intervals_json: str | None = None,
+        siglip_vector: list[float] | None = None,
+    ) -> None:
+        values = {}
+        if owner_track_id is not None:
+            values["owner_track_id"] = str(owner_track_id)
+        if owner_crop_path is not None:
+            values["owner_crop_path"] = str(owner_crop_path)
+        if status is not None:
+            values["status"] = str(status)
+        if abandoned_since_sec is not None:
+            values["abandoned_since_sec"] = float(abandoned_since_sec)
+        if abandoned_frame_path is not None:
+            values["abandoned_frame_path"] = str(abandoned_frame_path)
+        if end_sec is not None:
+            values["end_sec"] = float(end_sec)
+        if end_frame is not None:
+            values["end_frame"] = int(end_frame)
+        if intervals_json is not None:
+            values["intervals_json"] = str(intervals_json)
+        if siglip_vector is not None:
+            values["siglip_vector"] = [float(x) for x in siglip_vector]
+
+        if values:
+            self.object_table.update(where=f"object_id = '{object_id}'", values=values)
+
+    def search_objects_by_vector(
+        self,
+        vector: list[float],
+        top_k: int = 5,
+        status_filter: str | None = None,
+    ) -> list[dict]:
+        vec = [float(x) for x in vector]
+        query = self.object_table.search(vec, vector_column_name="siglip_vector").metric("cosine")
+        if status_filter:
+            query = query.where(f"status = '{status_filter}'")
+        return query.limit(top_k).to_list()
+
+    def get_all_objects(self) -> list[dict]:
+        return self.object_table.to_pandas().to_dict(orient="records")
+
+    def get_objects_by_owner(self, owner_track_id: str) -> list[dict]:
+        return [
+            r for r in self.get_all_objects()
+            if str(r.get("owner_track_id", "")) == str(owner_track_id)
+        ]
+
+    # --- Phase 2: Video Event Chunk Summaries CRUD / Search ---
+
+    def insert_video_event(self, record: dict) -> None:
+        tile_notes = record.get("tile_notes", [])
+        tile_notes_json = (
+            json.dumps(tile_notes) if not isinstance(tile_notes, str) else tile_notes
+        )
+        ref_tracks = record.get("referenced_track_ids", [])
+        ref_tracks_json = (
+            json.dumps([str(x) for x in ref_tracks])
+            if not isinstance(ref_tracks, str)
+            else ref_tracks
+        )
+        ref_objs = record.get("referenced_object_ids", [])
+        ref_objs_json = (
+            json.dumps([str(x) for x in ref_objs])
+            if not isinstance(ref_objs, str)
+            else ref_objs
+        )
+
+        row = {
+            "chunk_id": str(record["chunk_id"]),
+            "start_sec": float(record.get("start_sec", 0.0)),
+            "end_sec": float(record.get("end_sec", 0.0)),
+            "trigger_reason": str(record.get("trigger_reason", "periodic")),
+            "summary_text": str(record.get("summary_text", "")),
+            "tile_notes_json": tile_notes_json,
+            "referenced_track_ids_json": ref_tracks_json,
+            "referenced_object_ids_json": ref_objs_json,
+            "keyframe_path": str(record.get("keyframe_path", "")),
+            "siglip_vector": [float(x) for x in record["siglip_vector"]],
+            "video_source": str(record.get("video_source", "")),
+        }
+        self.event_table.add([row])
+
+    def search_video_events(self, vector: list[float], top_k: int = 5) -> list[dict]:
+        vec = [float(x) for x in vector]
+        return (
+            self.event_table.search(vec, vector_column_name="siglip_vector")
+            .metric("cosine")
+            .limit(top_k)
+            .to_list()
+        )
+
+    def get_all_video_events(self) -> list[dict]:
+        rows = self.event_table.to_pandas().to_dict(orient="records")
+        return sorted(rows, key=lambda r: float(r.get("start_sec", 0.0)))

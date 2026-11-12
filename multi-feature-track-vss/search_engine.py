@@ -89,6 +89,61 @@ def print_scene_results(results: list[dict], search_type: str) -> None:
     print()
 
 
+def print_object_results(results: list[dict], search_type: str) -> None:
+    print("\n" + "=" * 80)
+    print(f"OBJECT TRACK RESULTS ({search_type.upper()})")
+    print("=" * 80)
+    if not results:
+        print("No matching tracked objects found.")
+        print("=" * 80 + "\n")
+        return
+
+    for rank, res in enumerate(results, start=1):
+        oid = res.get("object_id", "Unknown")
+        label = res.get("label", "object")
+        distance = res.get("_distance", None)
+        score_str = f"Cosine Dist: {distance:.4f}" if distance is not None else "N/A"
+        owner = res.get("owner_track_id", "Unknown")
+        owner_crop = res.get("owner_crop_path", "")
+        status = res.get("status", "attended")
+        ab_sec = float(res.get("abandoned_since_sec", -1.0))
+        s_sec = float(res.get("start_sec", 0.0))
+        e_sec = float(res.get("end_sec", 0.0))
+
+        ab_str = f" (Abandoned since {format_timestamp(ab_sec)} / {ab_sec:.1f}s)" if status == "abandoned" and ab_sec >= 0 else ""
+        print(f"[{rank}] Object ID: #{oid} ({label}) | Status: {status.upper()}{ab_str} | {score_str}")
+        print(f"    Visible Clip: {format_timestamp(s_sec)} - {format_timestamp(e_sec)} ({s_sec:.1f}s - {e_sec:.1f}s)")
+        print(f"    Bound Owner : Global Person ID #{owner} ({owner_crop or 'N/A'})")
+        print(f"    Object Crop : {res.get('best_crop_path', '')}")
+        if res.get("abandoned_frame_path"):
+            print(f"    Alert Frame : {res['abandoned_frame_path']}")
+        print("-" * 80)
+    print()
+
+
+def print_event_results(results: list[dict], search_type: str) -> None:
+    print("\n" + "=" * 80)
+    print(f"VIDEO EVENT CHUNKS ({search_type.upper()})")
+    print("=" * 80)
+    if not results:
+        print("No matching video event summaries found.")
+        print("=" * 80 + "\n")
+        return
+
+    for rank, res in enumerate(results, start=1):
+        cid = res.get("chunk_id", "chunk")
+        s_sec = float(res.get("start_sec", 0.0))
+        e_sec = float(res.get("end_sec", 0.0))
+        distance = res.get("_distance", None)
+        score_str = f" | Cosine Dist: {distance:.4f}" if distance is not None else ""
+        print(f"[{rank}] {cid} | {format_timestamp(s_sec)} - {format_timestamp(e_sec)} ({s_sec:.1f}s-{e_sec:.1f}s) | Trigger={res.get('trigger_reason', 'periodic')}{score_str}")
+        print(f"    Tracks      : {res.get('referenced_track_ids_json', '[]')} | Objects: {res.get('referenced_object_ids_json', '[]')}")
+        print(f"    Summary     : {res.get('summary_text', '')}")
+        print(f"    Keyframe    : {res.get('keyframe_path', '')}")
+        print("-" * 80)
+    print()
+
+
 def extract_video_embedding(video_path: Path, embedder: LocalEmbedder, num_samples: int = 5) -> list[float]:
     cap = cv2.VideoCapture(str(video_path))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -116,26 +171,63 @@ def main():
     parser = argparse.ArgumentParser(description="Auditorium Video Semantic Search CLI")
     parser.add_argument("--text", type=str, default=None, help="Search by natural language query")
     parser.add_argument("--image", type=str, default=None, help="Reference person image path")
+    parser.add_argument("--object", type=str, default=None, help="Reference object/bag image path to find clip timestamps & owner")
+    parser.add_argument("--object-text", type=str, default=None, help="Natural language description of a tracked object (e.g. 'green bag')")
+    parser.add_argument("--events", type=str, default=None, help="Search Phase 2 video event summaries by natural language")
     parser.add_argument("--video", type=str, default=None, help="Reference video clip path")
     parser.add_argument("--face", type=str, default=None, help="Search by reference face image (ArcFace)")
     parser.add_argument("--mode", type=str, choices=["reid", "multimodal"], default="reid",
                         help="Image search mode: 'reid' (MSMT17 OSNet-AIN) or 'multimodal' (SigLIP)")
     parser.add_argument("--pose", type=str, choices=["standing", "sitting"], default=None,
                         help="Optional pose filter for text search")
+    parser.add_argument("--status", type=str, choices=["attended", "stationary", "abandoned"], default=None,
+                        help="Optional abandonment status filter for object search")
     parser.add_argument("--scenes", action="store_true",
                         help="Search sampled full auditorium scene keyframes instead of individual person crops")
     parser.add_argument("--siglip-model", type=str, default="google/siglip-base-patch16-384",
                         help="SigLIP model ID (must match indexed vector dimension)")
+    parser.add_argument("--db-path", type=str, default="data/lancedb", help="LanceDB directory path")
     parser.add_argument("--top-k", type=int, default=5, help="Number of results to retrieve")
     args = parser.parse_args()
 
-    if not (args.text or args.image or args.face or args.video):
+    if not (args.text or args.image or args.face or args.video or args.object or args.object_text or args.events):
         parser.print_help()
         sys.exit(1)
 
-    embedder = LocalEmbedder(siglip_id=args.siglip_model) if (args.text or args.image or args.video) else None
+    embedder = LocalEmbedder(siglip_id=args.siglip_model) if (
+        args.text or args.image or args.video or args.object or args.object_text or args.events
+    ) else None
     siglip_dim = embedder.siglip_dim if embedder is not None else 768
-    vector_db = AuditoriumVectorDB(siglip_dim=siglip_dim)
+    vector_db = AuditoriumVectorDB(db_path=args.db_path, siglip_dim=siglip_dim)
+
+    if args.object:
+        obj_path = Path(args.object)
+        if not obj_path.exists():
+            print(f"Error: Object image not found: {obj_path}", file=sys.stderr)
+            sys.exit(1)
+        obj_img = cv2.imread(str(obj_path))
+        if obj_img is None:
+            print(f"Error: Unable to read object image: {obj_path}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Extracting SigLIP object embedding for '{obj_path.name}'...")
+        obj_vec = embedder.extract_multimodal_image(obj_img)
+        results = vector_db.search_objects_by_vector(obj_vec, top_k=args.top_k, status_filter=args.status)
+        print_object_results(results, f"Object Image: '{obj_path.name}'")
+        return
+
+    if args.object_text:
+        print(f"Searching tracked objects for: \"{args.object_text}\"...")
+        text_vec = embedder.extract_multimodal_text(args.object_text)
+        results = vector_db.search_objects_by_vector(text_vec, top_k=args.top_k, status_filter=args.status)
+        print_object_results(results, f"Object Text: '{args.object_text}'")
+        return
+
+    if args.events:
+        print(f"Searching video event chunks for: \"{args.events}\"...")
+        ev_vec = embedder.extract_multimodal_text(args.events)
+        results = vector_db.search_video_events(ev_vec, top_k=args.top_k)
+        print_event_results(results, f"Events: '{args.events}'")
+        return
 
     if args.scenes and args.text:
         print(f"Searching full scene keyframes for: \"{args.text}\"...")

@@ -102,16 +102,39 @@ class LocalEmbedder:
     def extract_multimodal_text(self, text: str) -> list[float]:
         """
         Extracts an L2-normalized SigLIP text embedding.
+        Splits long paragraphs across sentences (with truncation to SigLIP's
+        max_position_embeddings) and mean-pools embeddings so multi-sentence
+        event summaries never exceed the token limit or drop tail details.
         """
         if not text or not text.strip():
             return [0.0] * self.siglip_dim
 
-        inputs = self.siglip_processor(text=[text.strip()], padding="max_length", return_tensors="pt")
+        max_pos = getattr(getattr(self.siglip_model.config, "text_config", None), "max_position_embeddings", 64)
+        clean_text = text.strip()
+
+        # Split long text by sentence punctuation if > 40 words
+        if len(clean_text.split()) > 35:
+            import re
+            chunks = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean_text) if s.strip()]
+            if not chunks:
+                chunks = [clean_text]
+        else:
+            chunks = [clean_text]
+
+        inputs = self.siglip_processor(
+            text=chunks,
+            padding="max_length",
+            truncation=True,
+            max_length=max_pos,
+            return_tensors="pt",
+        )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             out = self.siglip_model.get_text_features(**inputs)
             feat = out.pooler_output if hasattr(out, "pooler_output") else out
             feat = feat / torch.clamp(feat.norm(p=2, dim=-1, keepdim=True), min=1e-12)
+            pooled = feat.mean(dim=0, keepdim=True)
+            pooled = pooled / torch.clamp(pooled.norm(p=2, dim=-1, keepdim=True), min=1e-12)
 
-        return feat[0].cpu().numpy().tolist()
+        return pooled[0].cpu().numpy().tolist()

@@ -29,25 +29,38 @@ def extract_mentioned_track_ids(question: str) -> list[str]:
 
 class QueryRouter:
     """
-    Classifies a natural-language query into one of three retrieval routes:
+    Classifies a natural-language query into one of five retrieval routes:
       - 'track_id': Explicit track/person ID lookup & timeline inspection
       - 'counting': Scene-wide headcounts, standing/sitting counts, crowd statistics
-      - 'person_forensic': Individual appearance, clothing, props (drink, bag, mic)
-    Uses structural ID extraction + zero-shot SigLIP semantic anchor similarity
-    (no brittle keyword lists).
+      - 'person_forensic': Individual appearance, clothing, props (drink, shirt, mic)
+      - 'object_ownership': Abandoned objects, bag/item ownership, carrier lookup
+      - 'video_summary': Whole-video events, activities, speakers, dancing, summaries
+    Uses structural ID extraction + zero-shot SigLIP semantic anchor similarity.
     """
 
     ROUTE_ANCHORS = {
         "counting": [
             "how many people are in the scene standing or sitting",
             "count the total number of people in the room or crowd",
-            "statistics and headcount of people across the auditorium"
+            "statistics and headcount of people across the auditorium",
         ],
         "person_forensic": [
-            "is anyone wearing a specific shirt holding a drink handbag or microphone",
-            "find a person carrying an object or wearing specific clothes",
-            "identify individual appearance clothing posture or props held by someone"
-        ]
+            "is anyone wearing a specific blue or red shirt or glasses",
+            "find a person wearing specific clothes posture or appearance",
+            "identify individual person holding a microphone or drink",
+        ],
+        "object_ownership": [
+            "who does this bag backpack suitcase or water bottle belong to",
+            "was any bag luggage or item abandoned left unattended behind",
+            "who was carrying leaving or owns the bag bottle or object",
+            "find when this object or bag was visible and who brought it",
+        ],
+        "video_summary": [
+            "what happened overall in the video summarize the main events",
+            "who was the speaker on the stage or who was dancing performing",
+            "describe activities interactions and timeline of events in the room",
+            "give a summary of what people did across the video",
+        ],
     }
 
     def __init__(self, embedder: LocalEmbedder):
@@ -64,7 +77,8 @@ class QueryRouter:
         self,
         question: str,
         query_vec: list[float] | np.ndarray,
-        forced_route: str = "auto"
+        forced_route: str = "auto",
+        has_reference_image: bool = False,
     ) -> tuple[str, list[str], dict[str, float]]:
         """
         Returns (selected_route, mentioned_ids, similarity_scores).
@@ -86,7 +100,11 @@ class QueryRouter:
         if mentioned_ids:
             return "track_id", mentioned_ids, scores
 
-        selected = "counting" if scores["counting"] >= scores["person_forensic"] else "person_forensic"
+        # Reference image passed with ownership/object question prioritizes object_ownership
+        if has_reference_image and scores["object_ownership"] >= scores["person_forensic"] - 0.03:
+            return "object_ownership", mentioned_ids, scores
+
+        selected = max(scores.items(), key=lambda kv: kv[1])[0]
         return selected, mentioned_ids, scores
 
 
@@ -132,9 +150,19 @@ class BaseVLMBackend(ABC):
         question: str,
         prompt_text: str,
         visual_items: list[dict],
-        images: list[Image.Image]
+        images: list[Image.Image],
+        max_new_tokens: int = 350,
     ) -> str:
         pass
+
+    def generate_text_only(self, prompt_text: str, max_new_tokens: int = 350) -> str:
+        return self.generate_answer(
+            question="",
+            prompt_text=prompt_text,
+            visual_items=[],
+            images=[],
+            max_new_tokens=max_new_tokens,
+        )
 
 
 # ==============================================================================
@@ -164,7 +192,8 @@ class HuggingFaceLocalBackend(BaseVLMBackend):
         model_lower = model_id.lower()
 
         common_kwargs = {
-            "device_map": "auto" if self.device == "cuda" else None,
+            "device_map": {"": 0} if self.device == "cuda" else None,
+            "low_cpu_mem_usage": True,
         }
         if quant_cfg is not None:
             common_kwargs["quantization_config"] = quant_cfg
@@ -194,7 +223,18 @@ class HuggingFaceLocalBackend(BaseVLMBackend):
                 if hasattr(self.model, "model") and hasattr(self.model.model, "inputs_merger"):
                     self.model.model.inputs_merger = types.MethodType(_fixed_smolvlm2_inputs_merger, self.model.model)
 
-        # Family 2: Meta Llama 3.2 Vision (11B)
+        # Family 2: OpenGVLab InternVL3 / InternVL2.5 HF native
+        elif "internvl" in model_lower:
+            self.model_family = "internvl"
+            from transformers import AutoProcessor, AutoModelForImageTextToText
+            self.model = AutoModelForImageTextToText.from_pretrained(
+                model_id,
+                attn_implementation=norm_attn,
+                **common_kwargs
+            )
+            self.processor = AutoProcessor.from_pretrained(model_id)
+
+        # Family 3: Meta Llama 3.2 Vision (11B)
         elif "llama" in model_lower:
             self.model_family = "llama"
             from transformers import AutoProcessor, AutoModelForImageTextToText
@@ -230,15 +270,40 @@ class HuggingFaceLocalBackend(BaseVLMBackend):
             )
             self.processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
+    def _decode_generated(self, out_ids: torch.Tensor, inputs: dict) -> str:
+        input_ids = inputs.get("input_ids")
+        if input_ids is not None and out_ids.shape[0] > input_ids.shape[1]:
+            gen_ids = out_ids[input_ids.shape[1]:]
+            return self.processor.decode(gen_ids, skip_special_tokens=True).strip()
+        decoded = self.processor.decode(out_ids, skip_special_tokens=True)
+        for marker in ("<|assistant|>", "assistant\n", "Assistant:"):
+            if marker in decoded:
+                return decoded.split(marker)[-1].strip()
+        return decoded.strip()
+
+    def _move_inputs_to_device(self, inputs: dict) -> dict:
+        moved = {}
+        target_dtype = getattr(self.model, "dtype", torch.float16 if self.device == "cuda" else torch.float32)
+        for k, v in inputs.items():
+            if isinstance(v, torch.Tensor):
+                if torch.is_floating_point(v) and target_dtype in (torch.float16, torch.bfloat16, torch.float32):
+                    moved[k] = v.to(device=self.device, dtype=target_dtype)
+                else:
+                    moved[k] = v.to(device=self.device)
+            else:
+                moved[k] = v
+        return moved
+
     def generate_answer(
         self,
         question: str,
         prompt_text: str,
         visual_items: list[dict],
-        images: list[Image.Image]
+        images: list[Image.Image],
+        max_new_tokens: int = 350,
     ) -> str:
-        # Pattern A: Chat-Template Interleaved Multi-Image (SmolVLM2 & Llama 3.2)
-        if self.model_family in ("smolvlm", "llama"):
+        # Pattern A: Chat-Template Interleaved Multi-Image (SmolVLM2, Llama 3.2, InternVL3-hf)
+        if self.model_family in ("smolvlm", "llama", "internvl"):
             content = []
             for item in visual_items:
                 content.append({"type": "image"})
@@ -246,27 +311,34 @@ class HuggingFaceLocalBackend(BaseVLMBackend):
             content.append({"type": "text", "text": prompt_text})
             messages = [{"role": "user", "content": content}]
             prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True)
-            inputs = self.processor(text=prompt, images=images, return_tensors="pt").to(self.device)
+            if images:
+                proc_kwargs = {"text": prompt, "images": images, "return_tensors": "pt", "padding": True}
+                if self.model_family == "internvl":
+                    proc_kwargs["images_kwargs"] = (
+                        {"max_patches": 3} if len(images) <= 2 else {"crop_to_patches": False}
+                    )
+                inputs = self.processor(**proc_kwargs)
+            else:
+                inputs = self.processor(text=prompt, return_tensors="pt", padding=True)
+            inputs = self._move_inputs_to_device(inputs)
 
             with torch.no_grad():
-                out = self.model.generate(**inputs, max_new_tokens=350)
-                decoded = self.processor.decode(out[0], skip_special_tokens=True)
-                if self.model_family == "llama" and "assistant\n" in decoded:
-                    return decoded.split("assistant\n")[-1].strip()
-                elif "Assistant:" in decoded:
-                    return decoded.split("Assistant:")[-1].strip()
-                return decoded.strip()
+                out = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
+                return self._decode_generated(out[0], inputs)
 
         # Pattern B: Numbered Special Token Markup (Phi-4 Multimodal)
         elif self.model_family == "phi4":
             image_tags = "".join([f"<|image_{i}|> [{item['label']}]\n" for i, item in enumerate(visual_items, 1)])
             formatted_prompt = f"<|user|>\n{image_tags}{prompt_text}\n<|end|>\n<|assistant|>\n"
-            inputs = self.processor(text=formatted_prompt, images=images, return_tensors="pt").to(self.device)
+            if images:
+                inputs = self.processor(text=formatted_prompt, images=images, return_tensors="pt")
+            else:
+                inputs = self.processor(text=formatted_prompt, return_tensors="pt")
+            inputs = self._move_inputs_to_device(inputs)
 
             with torch.no_grad():
-                out = self.model.generate(**inputs, max_new_tokens=350)
-                decoded = self.processor.decode(out[0], skip_special_tokens=True)
-                return decoded.split("<|assistant|>")[-1].strip() if "<|assistant|>" in decoded else decoded.strip()
+                out = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
+                return self._decode_generated(out[0], inputs)
 
         # Pattern C: Generic Fallback
         else:
@@ -278,13 +350,20 @@ class HuggingFaceLocalBackend(BaseVLMBackend):
                 content.append({"type": "text", "text": prompt_text})
                 messages = [{"role": "user", "content": content}]
                 prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True)
-                inputs = self.processor(text=prompt, images=images, return_tensors="pt").to(self.device)
+                if images:
+                    inputs = self.processor(text=prompt, images=images, return_tensors="pt")
+                else:
+                    inputs = self.processor(text=prompt, return_tensors="pt")
             except Exception:
-                inputs = self.processor(text=prompt_text, images=images, return_tensors="pt").to(self.device)
+                if images:
+                    inputs = self.processor(text=prompt_text, images=images, return_tensors="pt")
+                else:
+                    inputs = self.processor(text=prompt_text, return_tensors="pt")
+            inputs = self._move_inputs_to_device(inputs)
 
             with torch.no_grad():
-                out = self.model.generate(**inputs, max_new_tokens=350)
-                return self.processor.decode(out[0], skip_special_tokens=True).strip()
+                out = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
+                return self._decode_generated(out[0], inputs)
 
 
 # ==============================================================================
@@ -310,7 +389,8 @@ class OpenAICompatibleRemoteBackend(BaseVLMBackend):
         question: str,
         prompt_text: str,
         visual_items: list[dict],
-        images: list[Image.Image]
+        images: list[Image.Image],
+        max_new_tokens: int = 512,
     ) -> str:
         content_items = []
         for item, img in zip(visual_items, images):
@@ -323,7 +403,7 @@ class OpenAICompatibleRemoteBackend(BaseVLMBackend):
         payload = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": content_items}],
-            "max_tokens": 512,
+            "max_tokens": max_new_tokens,
             "temperature": 0.2
         }
 
@@ -359,13 +439,29 @@ class LocalVLMQA:
         question: str,
         candidate_tracks: list[dict],
         scene_frames: list[dict] | None = None,
-        structured_stats: dict | None = None
+        structured_stats: dict | None = None,
+        object_records: list[dict] | None = None,
+        video_events: list[dict] | None = None,
+        reference_image_path: str | None = None,
     ) -> str:
         images: list[Image.Image] = []
         visual_items: list[dict] = []
         context_lines: list[str] = []
 
-        # Include full scene keyframes first (critical for scene-wide counting / posture / held props)
+        # Include query reference image first if provided (e.g., query bag crop)
+        if reference_image_path:
+            ref_path = Path(reference_image_path)
+            if ref_path.exists():
+                try:
+                    img = Image.open(str(ref_path)).convert("RGB")
+                    label = "User Query Reference Image"
+                    images.append(img)
+                    visual_items.append({"type": "query_image", "label": label})
+                    context_lines.append(f"- {label}: {ref_path.name}")
+                except Exception as e:
+                    print(f"Warning: Could not open reference image {ref_path}: {e}", file=sys.stderr)
+
+        # Include full scene keyframes (critical for scene-wide counting / posture / props)
         if scene_frames:
             for i, sf in enumerate(scene_frames, 1):
                 fpath = Path(sf.get("frame_path", ""))
@@ -383,7 +479,71 @@ class LocalVLMQA:
                     except Exception as e:
                         print(f"Warning: Could not open scene frame {fpath}: {e}", file=sys.stderr)
 
-        # Include individual candidate person crops
+        # Include matched open-vocab tracked objects + owner & abandonment metadata
+        if object_records:
+            for i, obj in enumerate(object_records, 1):
+                obj_id = obj.get("object_id", "?")
+                lbl = obj.get("label", "object")
+                owner_id = obj.get("owner_track_id", "Unknown")
+                status = obj.get("status", "attended")
+                s_sec = float(obj.get("start_sec", 0.0))
+                e_sec = float(obj.get("end_sec", 0.0))
+                ab_sec = float(obj.get("abandoned_since_sec", -1.0))
+                ab_note = (
+                    f", AbandonedSince={format_timestamp(ab_sec)} ({ab_sec:.1f}s)"
+                    if status == "abandoned" and ab_sec >= 0
+                    else ""
+                )
+                label = (
+                    f"Tracked Object #{i} [OBJ:{obj_id}] ({lbl}) | Owner=Person ID #{owner_id} "
+                    f"| Status={status}{ab_note} | Visible: {format_timestamp(s_sec)} - {format_timestamp(e_sec)} ({s_sec:.1f}s-{e_sec:.1f}s)"
+                )
+                crop_path = Path(obj.get("best_crop_path", ""))
+                if crop_path.exists():
+                    try:
+                        img = Image.open(str(crop_path)).convert("RGB")
+                        images.append(img)
+                        visual_items.append({"type": "object", "label": label})
+                    except Exception:
+                        pass
+                ab_frame_path = Path(obj.get("abandoned_frame_path", ""))
+                if status == "abandoned" and ab_frame_path.exists() and len(images) < 6:
+                    try:
+                        ab_img = Image.open(str(ab_frame_path)).convert("RGB")
+                        ab_label = f"Abandonment Evidence Frame for [OBJ:{obj_id}] ({lbl}) @ {ab_sec:.1f}s"
+                        images.append(ab_img)
+                        visual_items.append({"type": "abandoned_scene", "label": ab_label})
+                    except Exception:
+                        pass
+                context_lines.append(f"- {label}")
+
+        # Include spatiotemporal video event summaries (Phase 2)
+        events_block = ""
+        if video_events:
+            ev_lines = []
+            seen_keyframes = set()
+            for ev in video_events:
+                s_sec = float(ev.get("start_sec", 0.0))
+                e_sec = float(ev.get("end_sec", 0.0))
+                reason = ev.get("trigger_reason", "periodic")
+                summary = ev.get("summary_text", "").strip()
+                ref_tracks = ev.get("referenced_track_ids_json", "[]")
+                ev_lines.append(
+                    f"- [{format_timestamp(s_sec)} - {format_timestamp(e_sec)} ({s_sec:.1f}s-{e_sec:.1f}s), trigger={reason}, tracks={ref_tracks}]: {summary}"
+                )
+                kpath = str(ev.get("keyframe_path", ""))
+                if kpath and kpath not in seen_keyframes and Path(kpath).exists() and len(images) < 6:
+                    seen_keyframes.add(kpath)
+                    try:
+                        k_img = Image.open(kpath).convert("RGB")
+                        k_label = f"Event Keyframe ({format_timestamp(s_sec)} - {format_timestamp(e_sec)})"
+                        images.append(k_img)
+                        visual_items.append({"type": "event_keyframe", "label": k_label})
+                    except Exception:
+                        pass
+            events_block = "Chronological / Relevant Video Event Summaries (Spatial-Windowed Timeline):\n" + "\n".join(ev_lines) + "\n\n"
+
+        # Include individual candidate person crops (cap total images to keep 2B VLMs crisp)
         for i, rec in enumerate(candidate_tracks, 1):
             track_id = rec.get("track_id", "Unknown")
             pose_label = rec.get("pose_label", "unknown")
@@ -405,16 +565,16 @@ class LocalVLMQA:
                     pass
 
             time_str = f"{start_sec:.1f}s to {end_sec:.1f}s ({format_timestamp(start_sec)} - {format_timestamp(end_sec)}){intervals_desc}"
+            label = f"Candidate #{i} / Global Track ID #{track_id} | Pose={pose_label} | Visible: {time_str}"
             crop_path = Path(rec.get("best_crop_path", ""))
-            if crop_path.exists():
+            if crop_path.exists() and len(images) < 8:
                 try:
                     img = Image.open(str(crop_path)).convert("RGB")
-                    label = f"Candidate #{i} / Global Track ID #{track_id} | Pose={pose_label} | Visible: {time_str}"
                     images.append(img)
                     visual_items.append({"type": "track", "label": label})
-                    context_lines.append(f"- {label}, Frames: {start_f}-{end_f}")
                 except Exception as e:
                     print(f"Warning: Could not open {crop_path}: {e}", file=sys.stderr)
+            context_lines.append(f"- {label}, Frames: {start_f}-{end_f}")
 
         stats_block = ""
         if structured_stats:
@@ -432,14 +592,16 @@ class LocalVLMQA:
         prompt_text = (
             f"You are an AI video surveillance analyst assistant.\n"
             f"{stats_block}"
-            f"Retrieved Visual Context (full scene keyframes and/or top person tracklets):\n"
+            f"{events_block}"
+            f"Retrieved Visual & Entity Context:\n"
             f"{timeline_context}\n\n"
             f"User Question: {question}\n\n"
             f"Instructions:\n"
             f"1. For counting or posture questions, combine the structured Database Pose Summary and full Scene Keyframes.\n"
-            f"2. For person/object/time questions, inspect the visual appearance (clothing, props like microphones, posture) of each image.\n"
-            f"3. Provide a concise, factual answer citing exact Global Track IDs, timestamps, or counts.\n"
-            f"4. If the evidence does not match what is asked, explicitly state that."
+            f"2. For object/bag ownership or abandonment questions, cite the Tracked Object ID, owner Global Person ID (#), status, and exact timestamps.\n"
+            f"3. For whole-video activity or speaker questions, synthesize the Video Event Summaries and linked Global Person IDs.\n"
+            f"4. For person forensic questions, inspect visual appearance (clothing, props, posture) of each crop.\n"
+            f"5. Provide a concise, factual answer citing exact Global Track IDs, timestamps, or counts. If evidence does not match, say so."
         )
 
         return self.backend.generate_answer(question, prompt_text, visual_items, images)
@@ -452,14 +614,21 @@ class LocalVLMQA:
 def main():
     parser = argparse.ArgumentParser(description="Auditorium Post-Execution VLM Q&A CLI")
     parser.add_argument("--question", type=str, required=True, help="Natural language question to ask about the video")
-    parser.add_argument("--top-k", type=int, default=3, help="Number of candidate tracklets to retrieve")
-    parser.add_argument("--route", type=str, default="auto", choices=["auto", "track_id", "counting", "person_forensic"],
-                        help="Query routing mode (default: auto semantic classification)")
+    parser.add_argument("--image", type=str, default=None, help="Optional reference crop image (e.g., bag crop for ownership lookup)")
+    parser.add_argument("--top-k", type=int, default=3, help="Number of candidate items to retrieve")
+    parser.add_argument("--db-path", type=str, default="data/lancedb", help="LanceDB directory path")
+    parser.add_argument(
+        "--route",
+        type=str,
+        default="auto",
+        choices=["auto", "track_id", "counting", "person_forensic", "object_ownership", "video_summary"],
+        help="Query routing mode (default: auto semantic classification)"
+    )
     parser.add_argument("--siglip-model", type=str, default="google/siglip-base-patch16-384", help="SigLIP model ID")
 
     # Model Selection & Runtime Options
     parser.add_argument("--model-id", type=str, default="HuggingFaceTB/SmolVLM2-2.2B-Instruct",
-                        help="HF model ID: SmolVLM2-2.2B, Llama-3.2-11B-Vision-Instruct, or Phi-4-multimodal-instruct")
+                        help="HF model ID: SmolVLM2-2.2B, InternVL3-2B-hf, Llama-3.2-11B-Vision, or Phi-4-multimodal")
     parser.add_argument("--attn-impl", type=str, default="sdpa", choices=["sdpa", "sdp", "eager"],
                         help="Attention implementation override for models like Phi-4 ('sdpa' or 'eager')")
     parser.add_argument("--quantize", type=str, default="none", choices=["none", "4bit", "8bit"],
@@ -475,25 +644,39 @@ def main():
     print(f"\n[1/3] Classifying query & searching vector database for: \"{args.question}\"...")
     embedder = LocalEmbedder(siglip_id=args.siglip_model)
     text_vec = embedder.extract_multimodal_text(args.question)
-    vector_db = AuditoriumVectorDB(siglip_dim=embedder.siglip_dim)
+
+    image_vec = None
+    if args.image:
+        import cv2
+        ref_bgr = cv2.imread(args.image)
+        if ref_bgr is None:
+            print(f"Error: Could not read --image '{args.image}'", file=sys.stderr)
+            sys.exit(1)
+        image_vec = embedder.extract_multimodal_image(ref_bgr)
+
+    vector_db = AuditoriumVectorDB(db_path=args.db_path, siglip_dim=embedder.siglip_dim)
+    all_tracks_map = {str(r["track_id"]): r for r in vector_db.get_all_records()}
 
     router = QueryRouter(embedder)
-    route, mentioned_ids, route_scores = router.classify(args.question, text_vec, forced_route=args.route)
-    print(
-        f"  -> Selected Route: [{route.upper()}] "
-        f"(counting={route_scores['counting']:.3f}, person_forensic={route_scores['person_forensic']:.3f})"
+    route, mentioned_ids, route_scores = router.classify(
+        args.question,
+        text_vec,
+        forced_route=args.route,
+        has_reference_image=bool(args.image),
     )
+    score_str = ", ".join(f"{k}={v:.3f}" for k, v in route_scores.items())
+    print(f"  -> Selected Route: [{route.upper()}] ({score_str})")
 
     candidates = []
     scene_frames = []
+    object_records = []
+    video_events = []
     structured_stats = None
 
     if route == "track_id":
-        all_recs = {str(r["track_id"]): r for r in vector_db.get_all_records()}
         for mid in mentioned_ids:
-            if mid in all_recs:
-                candidates.append(all_recs[mid])
-        # Supplement if no explicit ID was found in DB
+            if mid in all_tracks_map:
+                candidates.append(all_tracks_map[mid])
         if not candidates:
             candidates = vector_db.search_by_text_vector(text_vec, top_k=args.top_k)
 
@@ -502,14 +685,74 @@ def main():
         scene_frames = vector_db.search_scene_frames(text_vec, top_k=3)
         candidates = vector_db.search_by_text_vector(text_vec, top_k=max(args.top_k, 5))
 
-    else:  # person_forensic
-        candidates = vector_db.search_by_text_vector(text_vec, top_k=max(args.top_k, 5))
+    elif route == "object_ownership":
+        search_vec = image_vec if image_vec is not None else text_vec
+        object_records = vector_db.search_objects_by_vector(search_vec, top_k=max(args.top_k, 5))
+        # Always include explicitly abandoned objects for unattended/abandoned queries
+        abandoned = [o for o in vector_db.get_all_objects() if o.get("status") == "abandoned"]
+        seen_obj_ids = {str(o.get("object_id")) for o in object_records}
+        for ab in abandoned:
+            if str(ab.get("object_id")) not in seen_obj_ids:
+                object_records.insert(0, ab)
+                seen_obj_ids.add(str(ab.get("object_id")))
+        object_records = object_records[:max(args.top_k, 5)]
 
-    if not candidates and not scene_frames:
-        print("No tracklets or scene keyframes found in LanceDB. Please run pipeline.py first.")
+        # Join each object's bound owner_track_id -> person_tracks record
+        seen_owners = set()
+        for obj in object_records:
+            oid = str(obj.get("owner_track_id", ""))
+            if oid and oid in all_tracks_map and oid not in seen_owners:
+                candidates.append(all_tracks_map[oid])
+                seen_owners.add(oid)
+        if not candidates:
+            candidates = vector_db.search_by_text_vector(text_vec, top_k=args.top_k)
+
+    elif route == "video_summary":
+        all_events = vector_db.get_all_video_events()
+        if all_events:
+            sem_events = vector_db.search_video_events(text_vec, top_k=max(args.top_k, 5))
+            # Merge top semantic hits + chronological coverage
+            by_cid = {e["chunk_id"]: e for e in sem_events}
+            for e in all_events:
+                if len(by_cid) >= 8:
+                    break
+                by_cid.setdefault(e["chunk_id"], e)
+            video_events = sorted(by_cid.values(), key=lambda r: float(r.get("start_sec", 0.0)))
+
+            # Attach crops for referenced Global Track IDs across events
+            seen_tids = set()
+            for ev in video_events:
+                try:
+                    tids = json.loads(ev.get("referenced_track_ids_json", "[]"))
+                except Exception:
+                    tids = []
+                for tid in tids:
+                    tid = str(tid)
+                    if tid in all_tracks_map and tid not in seen_tids:
+                        candidates.append(all_tracks_map[tid])
+                        seen_tids.add(tid)
+        if not scene_frames:
+            scene_frames = vector_db.search_scene_frames(text_vec, top_k=2)
+        if not candidates:
+            candidates = vector_db.search_by_text_vector(text_vec, top_k=max(args.top_k, 4))
+
+    else:  # person_forensic
+        search_vec = image_vec if image_vec is not None else text_vec
+        candidates = vector_db.search_by_text_vector(search_vec, top_k=max(args.top_k, 5))
+
+    if not candidates and not scene_frames and not object_records and not video_events:
+        print("No matching records found in LanceDB. Please run pipeline.py first.")
         sys.exit(0)
 
-    print(f"[2/3] Retrieved {len(candidates)} candidate track(s) and {len(scene_frames)} full scene keyframe(s):")
+    print(
+        f"[2/3] Retrieved {len(candidates)} person(s), {len(object_records)} object(s), "
+        f"{len(video_events)} event chunk(s), {len(scene_frames)} scene keyframe(s):"
+    )
+    for o in object_records:
+        print(
+            f"  - Object #{o.get('object_id')} ({o.get('label')}) | Status: {o.get('status')} "
+            f"| Owner: Person #{o.get('owner_track_id')} | Time: {o.get('start_sec', 0.0):.1f}s - {o.get('end_sec', 0.0):.1f}s"
+        )
     for c in candidates:
         print(
             f"  - Track #{c.get('track_id')} | Pose: {c.get('pose_label', 'unknown')} "
@@ -530,6 +773,14 @@ def main():
             api_key=args.api_key
         )
     else:
+        # Release retrieval models (SigLIP / OSNet) before mapping large VLM weights
+        import gc
+        del router
+        del embedder
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         print(f"\n[3/3] Prompting local VLM ({args.model_id})...\n")
         backend = HuggingFaceLocalBackend(
             model_id=args.model_id,
@@ -542,7 +793,10 @@ def main():
         args.question,
         candidate_tracks=candidates,
         scene_frames=scene_frames,
-        structured_stats=structured_stats
+        structured_stats=structured_stats,
+        object_records=object_records,
+        video_events=video_events,
+        reference_image_path=args.image,
     )
 
     print("=" * 80)

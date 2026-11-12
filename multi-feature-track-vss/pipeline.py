@@ -11,6 +11,26 @@ from pose_module import PoseAnalyzer
 from vector_store import AuditoriumVectorDB
 from reid_manager import OnlineReIDManager
 from download_sample import download_sample
+from object_detector import ObjectDetector
+from object_tracker import ObjectTracker
+from video_summarizer import VideoEventSummarizer
+
+
+def _resolve_owner_label(raw_owner: str, reid_manager: OnlineReIDManager) -> tuple[str, str]:
+    """Resolves temporary `local:<id>` owner tags to Global Track IDs once confirmed."""
+    if raw_owner and raw_owner.startswith("local:"):
+        try:
+            lid = int(raw_owner.split(":", 1)[1])
+            gid = reid_manager.get_global_id(lid)
+            if gid is not None:
+                entry = reid_manager.gallery.get(str(gid), {})
+                return str(gid), str(entry.get("best_crop_path", ""))
+        except Exception:
+            pass
+    if raw_owner and raw_owner != "Unknown":
+        entry = reid_manager.gallery.get(str(raw_owner), {})
+        return str(raw_owner), str(entry.get("best_crop_path", ""))
+    return "Unknown", ""
 
 
 def run_pipeline(
@@ -21,7 +41,18 @@ def run_pipeline(
     reid_threshold: float = 0.72,
     face_threshold: float = 0.55,
     scene_interval_sec: float = 3.0,
-    siglip_model: str = "google/siglip-base-patch16-384"
+    siglip_model: str = "google/siglip-base-patch16-384",
+    track_objects: str | None = None,
+    abandon_seconds: float = 5.0,
+    summarize: bool = False,
+    summary_interval: float = 8.0,
+    vlm_model: str = "OpenGVLab/InternVL3-2B-hf",
+    attn_impl: str = "sdpa",
+    quantize: str = "none",
+    endpoint_url: str | None = None,
+    model_name: str = "nvidia/nemotron-4-340b",
+    api_key: str | None = None,
+    db_path: str = "data/lancedb",
 ) -> None:
     video_file = Path(video_path)
     if not video_file.exists():
@@ -30,8 +61,11 @@ def run_pipeline(
 
     crops_dir = Path("data/crops")
     scenes_dir = Path("data/scenes")
+    obj_crops_dir = Path("data/object_crops")
     crops_dir.mkdir(parents=True, exist_ok=True)
     scenes_dir.mkdir(parents=True, exist_ok=True)
+    if track_objects:
+        obj_crops_dir.mkdir(parents=True, exist_ok=True)
 
     print("Initializing models and modules...")
     detector = PersonDetector()
@@ -39,11 +73,32 @@ def run_pipeline(
     embedder = LocalEmbedder(siglip_id=siglip_model)
     face_module = FaceModule()
     pose_analyzer = PoseAnalyzer()
-    vector_db = AuditoriumVectorDB(recreate=recreate_db, siglip_dim=embedder.siglip_dim)
+    vector_db = AuditoriumVectorDB(db_path=db_path, recreate=recreate_db, siglip_dim=embedder.siglip_dim)
     reid_manager = OnlineReIDManager(
         vector_db=vector_db,
         reid_sim_threshold=reid_threshold,
         face_sim_threshold=face_threshold
+    )
+
+    object_detector = None
+    object_tracker = None
+    if track_objects:
+        target_classes = [c.strip() for c in track_objects.split(",") if c.strip()]
+        if target_classes:
+            object_detector = ObjectDetector(target_classes=target_classes)
+            object_tracker = ObjectTracker(
+                track_activation_threshold=6,
+                abandon_seconds=abandon_seconds,
+            )
+
+    summarizer = (
+        VideoEventSummarizer(
+            summary_interval=summary_interval,
+            sample_step_sec=max(1.5, summary_interval / 4.0),
+            scenes_dir=str(scenes_dir),
+        )
+        if summarize
+        else None
     )
 
     cap = cv2.VideoCapture(str(video_file))
@@ -62,6 +117,9 @@ def run_pipeline(
 
     frame_id = 0
     scene_count = 0
+    indexed_obj_ids: set[str] = set()
+    obj_crop_paths: dict[str, str] = {}
+    abandoned_frame_paths: dict[str, str] = {}
 
     try:
         while True:
@@ -72,7 +130,7 @@ def run_pipeline(
             frame_id += 1
             timestamp = frame_id / fps
 
-            # 1. Detection & Tracking
+            # 1. Person Detection & Tracking (unchanged)
             bboxes, _ = detector.detect(frame)
             active_tracks, newly_confirmed = tracker.update(
                 detections=bboxes,
@@ -103,7 +161,9 @@ def run_pipeline(
             # 3. Update active on-screen tracks for mutual-exclusion checks
             reid_manager.update_frame_state(active_tracks, timestamp=timestamp, frame_id=frame_id)
 
-            # 4. Process newly confirmed tracks
+            discrete_events: list[str] = []
+
+            # 4. Process newly confirmed person tracks
             for track in newly_confirmed:
                 local_id = track["track_id"]
                 best_crop = track["best_crop"]
@@ -151,6 +211,129 @@ def run_pipeline(
                     f"[Frame {frame_id:04d} / {timestamp:05.1f}s] Confirmed Local #{local_id} -> "
                     f"{status_str} | Pose: {pose_label} | Face: {has_face}"
                 )
+                discrete_events.append(f"At {timestamp:.1f}s confirmed [ID:{global_id}] ({pose_label})")
+
+            # 5. Separate Open-Vocab Object Detection, Ownership Binding & Abandonment Check
+            active_objs: list[dict] = []
+            new_abandoned: list[dict] = []
+            if object_detector is not None and object_tracker is not None:
+                person_candidates = []
+                for act in active_tracks:
+                    lid = act["track_id"]
+                    gid = reid_manager.get_global_id(lid)
+                    pid = str(gid) if gid is not None else f"local:{lid}"
+                    cpath = reid_manager.gallery.get(str(gid), {}).get("best_crop_path", "") if gid is not None else ""
+                    person_candidates.append({
+                        "person_id": pid,
+                        "bbox": act["bbox"],
+                        "crop_path": cpath,
+                    })
+
+                obj_bboxes, obj_labels = object_detector.detect(frame)
+                active_objs, new_objs, new_abandoned = object_tracker.update(
+                    detections=obj_bboxes,
+                    labels=obj_labels,
+                    frame=frame,
+                    frame_id=frame_id,
+                    timestamp=timestamp,
+                    person_candidates=person_candidates,
+                )
+
+                for obj in new_objs:
+                    oid = str(obj["object_id"])
+                    best_obj_crop = obj["best_crop"]
+                    ocrop_path = obj_crops_dir / f"obj_{oid}.jpg"
+                    cv2.imwrite(str(ocrop_path), best_obj_crop)
+                    obj_crop_paths[oid] = str(ocrop_path)
+
+                    owner_id, owner_cpath = _resolve_owner_label(obj["owner_track_id"], reid_manager)
+                    obj_siglip = embedder.extract_multimodal_image(best_obj_crop)
+
+                    ab_fpath = ""
+                    if obj["status"] == "abandoned" and object_tracker.active_buffers[int(oid)].get("abandoned_frame") is not None:
+                        af = scenes_dir / f"abandoned_obj_{oid}_f{frame_id}.jpg"
+                        cv2.imwrite(str(af), object_tracker.active_buffers[int(oid)]["abandoned_frame"])
+                        ab_fpath = str(af)
+                        abandoned_frame_paths[oid] = ab_fpath
+
+                    vector_db.insert_object({
+                        "object_id": oid,
+                        "label": obj["label"],
+                        "siglip_vector": obj_siglip,
+                        "owner_track_id": owner_id,
+                        "owner_crop_path": owner_cpath,
+                        "status": obj["status"],
+                        "abandoned_since_sec": obj["abandoned_since_sec"],
+                        "abandoned_frame_path": ab_fpath,
+                        "start_sec": obj["start_sec"],
+                        "end_sec": obj["end_sec"],
+                        "start_frame": obj["start_frame"],
+                        "end_frame": obj["end_frame"],
+                        "best_crop_path": str(ocrop_path),
+                        "video_source": str(video_file),
+                    })
+                    indexed_obj_ids.add(oid)
+                    print(
+                        f"[Frame {frame_id:04d} / {timestamp:05.1f}s] Indexed Object [OBJ:{oid}] ({obj['label']}) "
+                        f"| Bound Owner: Person #{owner_id} | Status: {obj['status']}"
+                    )
+
+                for ab in new_abandoned:
+                    oid = str(ab["object_id"])
+                    owner_id, owner_cpath = _resolve_owner_label(ab["owner_track_id"], reid_manager)
+                    ab_path = scenes_dir / f"abandoned_obj_{oid}_f{frame_id}.jpg"
+                    if ab.get("abandoned_frame") is not None:
+                        cv2.imwrite(str(ab_path), ab["abandoned_frame"])
+                        abandoned_frame_paths[oid] = str(ab_path)
+
+                    print(
+                        f"\n[ALERT - ABANDONED OBJECT] [OBJ:{oid}] ({ab['label']}) left unattended since "
+                        f"{ab['abandoned_since_sec']:.1f}s (detected @ {timestamp:.1f}s) | "
+                        f"Likely Owner: Person #{owner_id}\n"
+                    )
+                    discrete_events.append(
+                        f"ALERT at {timestamp:.1f}s: [OBJ:{oid}] ({ab['label']}) ABANDONED "
+                        f"(unattended since {ab['abandoned_since_sec']:.1f}s), likely owner [ID:{owner_id}]"
+                    )
+                    if oid in indexed_obj_ids:
+                        vector_db.update_object(
+                            object_id=oid,
+                            owner_track_id=owner_id,
+                            owner_crop_path=owner_cpath,
+                            status="abandoned",
+                            abandoned_since_sec=ab["abandoned_since_sec"],
+                            abandoned_frame_path=abandoned_frame_paths.get(oid, ""),
+                            end_sec=timestamp,
+                            end_frame=frame_id,
+                        )
+
+            # 6. Feed Phase 2 Spatial-Windowed Video Event Summarizer
+            if summarizer is not None:
+                sum_persons = []
+                for act in active_tracks:
+                    lid = act["track_id"]
+                    gid = reid_manager.get_global_id(lid)
+                    pid = str(gid) if gid is not None else f"local:{lid}"
+                    pose = reid_manager.gallery.get(str(gid), {}).get("pose_label", "unknown") if gid is not None else "unknown"
+                    sum_persons.append({
+                        "person_id": pid,
+                        "bbox": act["bbox"],
+                        "pose": pose,
+                    })
+                sum_objects = []
+                for obj in active_objs:
+                    owner_id, _ = _resolve_owner_label(obj["owner_track_id"], reid_manager)
+                    sum_objects.append({**obj, "owner_track_id": owner_id})
+
+                flush_reason = "abandoned_object" if new_abandoned else None
+                summarizer.observe_frame(
+                    frame=frame,
+                    timestamp=timestamp,
+                    person_items=sum_persons,
+                    object_items=sum_objects,
+                    discrete_events=discrete_events,
+                    force_flush_reason=flush_reason,
+                )
 
             if display:
                 for act in active_tracks:
@@ -163,6 +346,15 @@ def run_pipeline(
                     cv2.putText(
                         frame, label, (box[0], max(15, box[1] - 5)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2
+                    )
+                for obj in active_objs:
+                    obox = [int(v) for v in obj["bbox"]]
+                    ocolor = (0, 0, 255) if obj["status"] == "abandoned" else (0, 165, 255)
+                    olbl = f"OBJ:{obj['object_id']} {obj['label']} ({obj['status']})"
+                    cv2.rectangle(frame, (obox[0], obox[1]), (obox[2], obox[3]), ocolor, 2)
+                    cv2.putText(
+                        frame, olbl, (obox[0], max(15, obox[1] - 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, ocolor, 2
                     )
                 cv2.imshow("Auditorium Global Tracker", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -184,20 +376,126 @@ def run_pipeline(
     print("\nVideo processing finished. Syncing final intervals to LanceDB...")
     reid_manager.finalize()
 
+    # Sync final object ownership, statuses, and timelines
+    if object_tracker is not None:
+        final_objs = object_tracker.get_all_indexed_objects()
+        for obj in final_objs:
+            oid = obj["object_id"]
+            if oid not in indexed_obj_ids:
+                continue
+            buf = object_tracker.active_buffers.get(int(oid), {})
+            # Resolve every score entry in case carrier became confirmed after carrying
+            resolved_scores: dict[str, float] = {}
+            for raw_pid, sc in buf.get("owner_scores", {}).items():
+                r_pid, _ = _resolve_owner_label(raw_pid, reid_manager)
+                if r_pid != "Unknown":
+                    resolved_scores[r_pid] = resolved_scores.get(r_pid, 0.0) + sc
+            if resolved_scores:
+                best_pid = max(resolved_scores.items(), key=lambda kv: kv[1])[0]
+                best_cpath = reid_manager.gallery.get(best_pid, {}).get("best_crop_path", "")
+            else:
+                best_pid, best_cpath = _resolve_owner_label(obj["owner_track_id"], reid_manager)
+
+            if obj["status"] == "abandoned" and oid not in abandoned_frame_paths and obj.get("abandoned_frame") is not None:
+                af = scenes_dir / f"abandoned_obj_{oid}_final.jpg"
+                cv2.imwrite(str(af), obj["abandoned_frame"])
+                abandoned_frame_paths[oid] = str(af)
+
+            vector_db.update_object(
+                object_id=oid,
+                owner_track_id=best_pid,
+                owner_crop_path=best_cpath,
+                status=obj["status"],
+                abandoned_since_sec=obj["abandoned_since_sec"],
+                abandoned_frame_path=abandoned_frame_paths.get(oid, ""),
+                end_sec=obj["end_sec"],
+                end_frame=obj["end_frame"],
+            )
+
+    gallery_snapshot = [
+        (gid, entry["pose_label"], list(entry["intervals"]))
+        for gid, entry in reid_manager.gallery.items()
+    ]
+
+    # Free detection & embedder VRAM/commit before loading local VLM for Phase 2 chunk summarization
+    event_count = 0
+    if summarizer is not None:
+        local_to_global = {
+            f"local:{lid}": str(gid)
+            for lid, gid in reid_manager.local_to_global.items()
+        }
+        summarizer.resolve_local_ids(local_to_global)
+        import gc
+        import torch
+        del detector
+        if object_detector is not None:
+            del object_detector
+        del face_module
+        del pose_analyzer
+        del reid_manager
+        del embedder
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        from vlm_qa import HuggingFaceLocalBackend, OpenAICompatibleRemoteBackend
+        if endpoint_url:
+            vlm_backend = OpenAICompatibleRemoteBackend(
+                endpoint_url=endpoint_url,
+                model_name=model_name,
+                api_key=api_key,
+            )
+        else:
+            vlm_backend = HuggingFaceLocalBackend(
+                model_id=vlm_model,
+                attn_impl=attn_impl,
+                quantize=quantize,
+            )
+        summarized_chunks = summarizer.summarize_all(vlm_backend=vlm_backend)
+
+        # Free VLM before re-loading SigLIP to embed summary texts into LanceDB
+        del vlm_backend
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        if summarized_chunks:
+            text_embedder = LocalEmbedder(siglip_id=siglip_model)
+            for item in summarized_chunks:
+                vec = text_embedder.extract_multimodal_text(item["summary_text"])
+                vector_db.insert_video_event({
+                    **item,
+                    "siglip_vector": vec,
+                    "video_source": str(video_file),
+                })
+                event_count += 1
+            del text_embedder
+            gc.collect()
+
     stats = vector_db.get_structured_stats()
-    print(f"Pipeline complete! Indexed {stats['total_unique_tracks']} Global Persons & {scene_count} Scene Keyframes.")
+    all_objs = vector_db.get_all_objects()
+    print(
+        f"Pipeline complete! Indexed {stats['total_unique_tracks']} Global Persons, "
+        f"{len(all_objs)} Tracked Objects, {scene_count} Scene Keyframes, {event_count} Video Event Chunks."
+    )
     print(
         f"Pose Summary (Tracks) -> Standing: {stats['standing_tracks']} | "
         f"Sitting: {stats['sitting_tracks']} | Unknown: {stats['unknown_pose_tracks']} | "
         f"Faces Captured: {stats['tracks_with_faces']}"
     )
-    for gid, entry in reid_manager.gallery.items():
-        intervals_str = ", ".join([f"{inv['start_sec']:.1f}s-{inv['end_sec']:.1f}s" for inv in entry["intervals"]])
-        print(f"  - Global Person #{gid} ({entry['pose_label']}): {len(entry['intervals'])} interval(s) [{intervals_str}]")
+    for gid, pose_lbl, invs in gallery_snapshot:
+        intervals_str = ", ".join([f"{inv['start_sec']:.1f}s-{inv['end_sec']:.1f}s" for inv in invs])
+        print(f"  - Global Person #{gid} ({pose_lbl}): {len(invs)} interval(s) [{intervals_str}]")
+    for obj in all_objs:
+        print(
+            f"  - Tracked Object [OBJ:{obj['object_id']}] ({obj['label']}): "
+            f"Status={obj['status']} | Owner=Person #{obj['owner_track_id']} "
+            f"| Visible={obj['start_sec']:.1f}s-{obj['end_sec']:.1f}s"
+        )
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Auditorium Tracker & VSS Pipeline with Online Re-ID & Scene Indexing")
+    parser = argparse.ArgumentParser(description="Auditorium Tracker & VSS Pipeline with Online Re-ID, Object Ownership & Summarization")
     parser.add_argument("--video", type=str, default="data/raw_videos/sample.mp4", help="Path to input video")
     parser.add_argument("--display", action="store_true", help="Display visual tracking window")
     parser.add_argument("--max-frames", type=int, default=None, help="Maximum number of frames to process")
@@ -205,7 +503,32 @@ if __name__ == "__main__":
     parser.add_argument("--face-threshold", type=float, default=0.55, help="ArcFace cosine similarity threshold")
     parser.add_argument("--scene-interval", type=float, default=3.0, help="Seconds between scene keyframe captures")
     parser.add_argument("--siglip-model", type=str, default="google/siglip-base-patch16-384", help="SigLIP Hugging Face model ID")
+    parser.add_argument("--db-path", type=str, default="data/lancedb", help="LanceDB directory path")
     parser.add_argument("--no-recreate", action="store_true", help="Append to existing DB rather than recreating table")
+
+    # Phase 1: Open-Vocab Object Tracking & Abandonment
+    parser.add_argument("--track-objects", type=str, default=None,
+                        help="Comma-separated YOLO-World prompts, e.g. 'bag, backpack, handbag, suitcase, water bottle'")
+    parser.add_argument("--abandon-seconds", type=float, default=5.0,
+                        help="Seconds stationary & unattended before flagging an object as abandoned")
+
+    # Phase 2: Spatial-Windowed Video Summarization
+    parser.add_argument("--summarize", action="store_true",
+                        help="Enable Phase 2 spatial-windowed VLM video event summarization")
+    parser.add_argument("--summary-interval", type=float, default=8.0,
+                        help="Target seconds per video event summary chunk")
+    parser.add_argument("--vlm-model", type=str, default="OpenGVLab/InternVL3-2B-hf",
+                        help="HF VLM model ID for --summarize (e.g. OpenGVLab/InternVL3-2B-hf or HuggingFaceTB/SmolVLM2-2.2B-Instruct)")
+    parser.add_argument("--attn-impl", type=str, default="sdpa", choices=["sdpa", "sdp", "eager"],
+                        help="Attention implementation for VLM during --summarize")
+    parser.add_argument("--quantize", type=str, default="none", choices=["none", "4bit", "8bit"],
+                        help="Optional quantization for local VLM during --summarize")
+    parser.add_argument("--endpoint-url", type=str, default=None,
+                        help="Optional remote OpenAI-compatible VLM URL for --summarize")
+    parser.add_argument("--model-name", type=str, default="nvidia/nemotron-4-340b",
+                        help="Model name identifier for remote --summarize endpoint")
+    parser.add_argument("--api-key", type=str, default=None,
+                        help="Bearer API key for remote --summarize endpoint")
     args = parser.parse_args()
 
     run_pipeline(
@@ -216,5 +539,16 @@ if __name__ == "__main__":
         reid_threshold=args.reid_threshold,
         face_threshold=args.face_threshold,
         scene_interval_sec=args.scene_interval,
-        siglip_model=args.siglip_model
+        siglip_model=args.siglip_model,
+        track_objects=args.track_objects,
+        abandon_seconds=args.abandon_seconds,
+        summarize=args.summarize,
+        summary_interval=args.summary_interval,
+        vlm_model=args.vlm_model,
+        attn_impl=args.attn_impl,
+        quantize=args.quantize,
+        endpoint_url=args.endpoint_url,
+        model_name=args.model_name,
+        api_key=args.api_key,
+        db_path=args.db_path,
     )
