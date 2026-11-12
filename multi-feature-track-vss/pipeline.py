@@ -33,6 +33,24 @@ def _resolve_owner_label(raw_owner: str, reid_manager: OnlineReIDManager) -> tup
     return "Unknown", ""
 
 
+def _bbox_iou(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:
+    ax1, ay1, ax2, ay2 = float(a[0]), float(a[1]), float(a[2]), float(a[3])
+    bx1, by1, bx2, by2 = float(b[0]), float(b[1]), float(b[2]), float(b[3])
+    ix1 = max(ax1, bx1)
+    iy1 = max(ay1, by1)
+    ix2 = min(ax2, bx2)
+    iy2 = min(ay2, by2)
+    iw = max(0.0, ix2 - ix1)
+    ih = max(0.0, iy2 - iy1)
+    inter = iw * ih
+    if inter <= 0.0:
+        return 0.0
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    denom = area_a + area_b - inter
+    return inter / denom if denom > 0.0 else 0.0
+
+
 def run_pipeline(
     video_path: str = "data/raw_videos/sample.mp4",
     display: bool = False,
@@ -44,6 +62,9 @@ def run_pipeline(
     siglip_model: str = "google/siglip-base-patch16-384",
     track_objects: str | None = None,
     abandon_seconds: float = 5.0,
+    multi_angle_reid: bool = False,
+    motion_owner_weight: bool = False,
+    tile_objects: bool = False,
     summarize: bool = False,
     summary_interval: float = 8.0,
     vlm_model: str = "OpenGVLab/InternVL3-2B-hf",
@@ -77,7 +98,8 @@ def run_pipeline(
     reid_manager = OnlineReIDManager(
         vector_db=vector_db,
         reid_sim_threshold=reid_threshold,
-        face_sim_threshold=face_threshold
+        face_sim_threshold=face_threshold,
+        multi_angle_reid=multi_angle_reid,
     )
 
     object_detector = None
@@ -86,10 +108,6 @@ def run_pipeline(
         target_classes = [c.strip() for c in track_objects.split(",") if c.strip()]
         if target_classes:
             object_detector = ObjectDetector(target_classes=target_classes)
-            object_tracker = ObjectTracker(
-                track_activation_threshold=6,
-                abandon_seconds=abandon_seconds,
-            )
 
     summarizer = (
         VideoEventSummarizer(
@@ -110,9 +128,27 @@ def run_pipeline(
         fps = 25.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     scene_step_frames = max(1, int(round(fps * scene_interval_sec)))
+    roi_recheck_step = max(1, int(round(fps * 0.5)))
+    multi_angle_step = max(1, int(round(fps * 1.0)))
+
+    if object_detector is not None:
+        object_tracker = ObjectTracker(
+            track_activation_threshold=6,
+            abandon_seconds=abandon_seconds,
+            fps=fps,
+            motion_owner_weight=motion_owner_weight,
+        )
 
     print(f"Processing video: {video_file.name} | FPS: {fps:.2f} | Total Frames: {total_frames}")
-    print(f"Online Re-ID Active: MSMT17 OSNet-AIN (th={reid_threshold:.2f}) + ArcFace (th={face_threshold:.2f})")
+    print(
+        f"Online Re-ID Active: MSMT17 OSNet-AIN (th={reid_threshold:.2f}, multi_angle={multi_angle_reid}) "
+        f"+ ArcFace (th={face_threshold:.2f})"
+    )
+    if object_tracker is not None:
+        print(
+            f"Object Tracker Active: abandon={abandon_seconds:.1f}s | tile_objects={tile_objects} "
+            f"| motion_owner_weight={motion_owner_weight}"
+        )
     print(f"Scene Keyframe Sampling: Every {scene_interval_sec:.1f}s ({scene_step_frames} frames) | SigLIP: {siglip_model}\n")
 
     frame_id = 0
@@ -160,6 +196,32 @@ def run_pipeline(
 
             # 3. Update active on-screen tracks for mutual-exclusion checks
             reid_manager.update_frame_state(active_tracks, timestamp=timestamp, frame_id=frame_id)
+
+            # Opt-in Multi-Angle OSNet Gallery expansion for isolated confirmed tracks
+            if multi_angle_reid and (frame_id % multi_angle_step == 0) and active_tracks:
+                h_f, w_f = frame.shape[:2]
+                for act in active_tracks:
+                    lid = act["track_id"]
+                    if reid_manager.get_global_id(lid) is None:
+                        continue
+                    abox = act["bbox"]
+                    is_isolated = not any(
+                        other["track_id"] != lid and _bbox_iou(abox, other["bbox"]) > 0.15
+                        for other in active_tracks
+                    )
+                    if not is_isolated:
+                        continue
+                    x1 = max(0, int(abox[0]))
+                    y1 = max(0, int(abox[1]))
+                    x2 = min(w_f, int(abox[2]))
+                    y2 = min(h_f, int(abox[3]))
+                    if (x2 - x1) < 20 or (y2 - y1) < 40:
+                        continue
+                    acrop = frame[y1:y2, x1:x2]
+                    if acrop.size == 0:
+                        continue
+                    avec = embedder.extract_body_reid(acrop)
+                    reid_manager.maybe_add_angle_vector(lid, avec, is_isolated=True)
 
             discrete_events: list[str] = []
 
@@ -229,7 +291,26 @@ def run_pipeline(
                         "crop_path": cpath,
                     })
 
-                obj_bboxes, obj_labels = object_detector.detect(frame)
+                if tile_objects:
+                    obj_bboxes, obj_labels = object_detector.detect_tiled(frame)
+                else:
+                    obj_bboxes, obj_labels = object_detector.detect(frame)
+
+                if frame_id % roi_recheck_step == 0:
+                    lost_rois = object_tracker.get_recently_lost_rois(timestamp)
+                    for roi in lost_rois:
+                        roi_boxes, roi_lbls = object_detector.detect_roi(frame, roi)
+                        if len(roi_boxes) == 0:
+                            continue
+                        merged_boxes = list(obj_bboxes) if len(obj_bboxes) > 0 else []
+                        merged_labels = list(obj_labels)
+                        for rb, rl in zip(roi_boxes, roi_lbls):
+                            if not any(_bbox_iou(rb, eb) >= 0.45 for eb in merged_boxes):
+                                merged_boxes.append(rb)
+                                merged_labels.append(rl)
+                        obj_bboxes = np.array(merged_boxes, dtype=np.float32) if merged_boxes else np.empty((0, 4), dtype=np.float32)
+                        obj_labels = merged_labels
+
                 active_objs, new_objs, new_abandoned = object_tracker.update(
                     detections=obj_bboxes,
                     labels=obj_labels,
@@ -396,7 +477,7 @@ def run_pipeline(
             else:
                 best_pid, best_cpath = _resolve_owner_label(obj["owner_track_id"], reid_manager)
 
-            if obj["status"] == "abandoned" and oid not in abandoned_frame_paths and obj.get("abandoned_frame") is not None:
+            if obj["status"] in ("abandoned", "unattended_at_end") and oid not in abandoned_frame_paths and obj.get("abandoned_frame") is not None:
                 af = scenes_dir / f"abandoned_obj_{oid}_final.jpg"
                 cv2.imwrite(str(af), obj["abandoned_frame"])
                 abandoned_frame_paths[oid] = str(af)
@@ -511,6 +592,12 @@ if __name__ == "__main__":
                         help="Comma-separated YOLO-World prompts, e.g. 'bag, backpack, handbag, suitcase, water bottle'")
     parser.add_argument("--abandon-seconds", type=float, default=5.0,
                         help="Seconds stationary & unattended before flagging an object as abandoned")
+    parser.add_argument("--tile-objects", action="store_true",
+                        help="Run 2x2 tiled YOLO-World detection for tiny objects in wide 4K frames (opt-in)")
+    parser.add_argument("--multi-angle-reid", action="store_true",
+                        help="Store up to 5 diverse-angle OSNet vectors per isolated track for Re-ID (opt-in)")
+    parser.add_argument("--motion-owner-weight", action="store_true",
+                        help="Apply 2.5x owner proximity weight while object is actively moving (opt-in)")
 
     # Phase 2: Spatial-Windowed Video Summarization
     parser.add_argument("--summarize", action="store_true",
@@ -542,6 +629,9 @@ if __name__ == "__main__":
         siglip_model=args.siglip_model,
         track_objects=args.track_objects,
         abandon_seconds=args.abandon_seconds,
+        multi_angle_reid=args.multi_angle_reid,
+        motion_owner_weight=args.motion_owner_weight,
+        tile_objects=args.tile_objects,
         summarize=args.summarize,
         summary_interval=args.summary_interval,
         vlm_model=args.vlm_model,

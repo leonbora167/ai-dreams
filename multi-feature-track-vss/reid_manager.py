@@ -17,12 +17,16 @@ class OnlineReIDManager:
         vector_db: AuditoriumVectorDB,
         reid_sim_threshold: float = 0.72,
         face_sim_threshold: float = 0.55,
-        min_time_gap_sec: float = 0.5
+        min_time_gap_sec: float = 0.5,
+        multi_angle_reid: bool = False,
+        secondary_reid_threshold: float = 0.76,
     ):
         self.vector_db = vector_db
         self.reid_sim_threshold = float(reid_sim_threshold)
         self.face_sim_threshold = float(face_sim_threshold)
         self.min_time_gap_sec = float(min_time_gap_sec)
+        self.multi_angle_reid = bool(multi_angle_reid)
+        self.secondary_reid_threshold = float(secondary_reid_threshold)
 
         self.local_to_global: dict[int, str] = {}
         self.active_local_ids: set[int] = set()
@@ -61,6 +65,7 @@ class OnlineReIDManager:
             self.gallery[gid] = {
                 "track_id": gid,
                 "body_vector": np.array(r["body_vector"], dtype=np.float32),
+                "body_gallery": [np.array(r["body_vector"], dtype=np.float32)],
                 "face_vector": np.array(r["face_vector"], dtype=np.float32) if r.get("face_vector") is not None else None,
                 "siglip_vector": np.array(r["siglip_vector"], dtype=np.float32),
                 "has_face": bool(r.get("has_face", False)),
@@ -88,6 +93,40 @@ class OnlineReIDManager:
                 self.gallery[gid]["intervals"][-1]["end_frame"] = frame_id
                 self.gallery[gid]["last_seen_sec"] = timestamp
                 self.gallery[gid]["last_seen_frame"] = frame_id
+
+    def maybe_add_angle_vector(
+        self,
+        local_id: int,
+        body_vec: list[float],
+        is_isolated: bool,
+        max_gallery: int = 5,
+    ) -> bool:
+        """
+        Opt-in (`multi_angle_reid=True`) helper: stores an additional angle OSNet
+        embedding only when the track is isolated (no overlapping person IoU > 0.15)
+        and within a safe similarity band (0.58..0.88) to the primary anchor.
+        """
+        if not self.multi_angle_reid or not is_isolated:
+            return False
+        gid = self.local_to_global.get(local_id)
+        if not gid or gid not in self.gallery:
+            return False
+        entry = self.gallery[gid]
+        gal = entry.setdefault("body_gallery", [entry["body_vector"]])
+        if len(gal) >= max_gallery:
+            return False
+
+        vec = np.array(body_vec, dtype=np.float32)
+        norm = np.linalg.norm(vec)
+        if norm <= 0:
+            return False
+        vec = vec / norm
+
+        sim_primary = float(np.dot(vec, entry["body_vector"]))
+        if 0.58 <= sim_primary <= 0.88:
+            gal.append(vec)
+            return True
+        return False
 
     def get_global_id(self, local_id: int) -> str | None:
         return self.local_to_global.get(local_id, None)
@@ -153,9 +192,21 @@ class OnlineReIDManager:
 
             # Tier 2: MSMT17 Body Re-ID match
             body_sim = float(np.dot(b_vec, entry["body_vector"]))
-            if body_sim >= self.reid_sim_threshold and body_sim > cand_score:
-                cand_score = body_sim
-                cand_type = f"BodyReID (Sim={body_sim:.3f})"
+            matched_body_sim = body_sim if body_sim >= self.reid_sim_threshold else -1.0
+            matched_type = f"BodyReID (Sim={body_sim:.3f})"
+
+            if self.multi_angle_reid and matched_body_sim < 0.0:
+                sec_vecs = entry.get("body_gallery", [])[1:]
+                if sec_vecs:
+                    sec_sims = [float(np.dot(b_vec, sv)) for sv in sec_vecs]
+                    best_sec = max(sec_sims)
+                    if best_sec >= self.secondary_reid_threshold:
+                        matched_body_sim = best_sec
+                        matched_type = f"BodyReID-MultiAngle (Sim={best_sec:.3f})"
+
+            if matched_body_sim > cand_score:
+                cand_score = matched_body_sim
+                cand_type = matched_type
 
             if cand_score > best_match_score and cand_score > 0.0:
                 best_match_score = cand_score
@@ -237,6 +288,7 @@ class OnlineReIDManager:
         self.gallery[new_gid] = {
             "track_id": new_gid,
             "body_vector": b_vec,
+            "body_gallery": [b_vec],
             "face_vector": f_vec,
             "siglip_vector": np.array(siglip_vec, dtype=np.float32),
             "has_face": has_face,

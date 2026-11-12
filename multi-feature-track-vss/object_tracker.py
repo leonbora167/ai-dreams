@@ -82,15 +82,26 @@ class ObjectTracker:
         abandon_seconds: float = 5.0,
         movement_threshold_ratio: float = 0.025,
         carrier_proximity_ratio: float = 0.40,
+        fps: float = 30.0,
+        motion_owner_weight: bool = False,
+        stitch_max_gap_sec: float = 6.0,
+        stitch_dist_ratio: float = 0.06,
     ):
         self.track_activation_threshold = track_activation_threshold
         self.abandon_seconds = float(abandon_seconds)
         self.movement_threshold_ratio = float(movement_threshold_ratio)
         self.carrier_proximity_ratio = float(carrier_proximity_ratio)
+        self.fps = max(1.0, float(fps))
+        self.motion_owner_weight = bool(motion_owner_weight)
+        self.stitch_max_gap_sec = float(stitch_max_gap_sec)
+        self.stitch_dist_ratio = float(stitch_dist_ratio)
+
+        lost_buffer_frames = max(30, int(round(self.fps * 2.5)))
 
         if HAS_TRACKERS_PKG:
             self.tracker = trackers.ByteTrackTracker(
-                lost_track_buffer=60,
+                lost_track_buffer=lost_buffer_frames,
+                frame_rate=self.fps,
                 track_activation_threshold=0.25,
                 high_conf_det_threshold=0.30,
                 minimum_consecutive_frames=2,
@@ -99,12 +110,16 @@ class ObjectTracker:
         else:
             self.tracker = sv.ByteTrack(
                 track_activation_threshold=0.25,
-                lost_track_buffer=60,
+                lost_track_buffer=lost_buffer_frames,
+                frame_rate=int(round(self.fps)),
                 minimum_consecutive_frames=2,
             )
             self.is_standalone_tracker = False
 
         self.active_buffers: Dict[int, dict] = {}
+        self._id_alias: Dict[int, int] = {}  # raw ByteTrack ID -> canonical stitched ID
+        self._last_frame_diag: float = 1000.0
+        self._last_active_ids: set[int] = set()
 
     def _compute_quality(self, crop: np.ndarray, bbox: List[float], confidence: float) -> float:
         if crop is None or crop.size == 0:
@@ -194,16 +209,57 @@ class ObjectTracker:
         newly_abandoned: List[dict] = []
 
         if tracked.tracker_id is None or len(tracked) == 0:
+            self._last_active_ids = set()
             return active_objects, newly_confirmed, newly_abandoned
 
+        self._last_frame_diag = frame_diag
+        bag_family = {"bag", "backpack", "handbag", "suitcase"}
+        raw_present_canonical = {
+            self._id_alias.get(int(tid), int(tid))
+            for tid in tracked.tracker_id
+            if int(tid) >= 0
+        }
+
         for i in range(len(tracked)):
-            obj_id = int(tracked.tracker_id[i])
-            if obj_id < 0:
+            raw_id = int(tracked.tracker_id[i])
+            if raw_id < 0:
                 continue
             x1, y1, x2, y2 = tracked.xyxy[i]
             bbox = [float(x1), float(y1), float(x2), float(y2)]
             conf = float(tracked.confidence[i]) if tracked.confidence is not None else 1.0
             label = self._match_label_for_box(bbox, detections, labels)
+
+            # Spatial track stitching for stationary/occluded objects across ByteTrack drops
+            if raw_id in self._id_alias:
+                obj_id = self._id_alias[raw_id]
+            elif raw_id not in self.active_buffers:
+                obj_id = raw_id
+                ccx, ccy = _bbox_center(bbox)
+                best_gap = self.stitch_max_gap_sec + 1.0
+                for cand_id, cbuf in self.active_buffers.items():
+                    if cand_id in raw_present_canonical:
+                        continue
+                    gap = timestamp - cbuf["end_sec"]
+                    if gap < 0.0 or gap > self.stitch_max_gap_sec:
+                        continue
+                    cand_lbl = (
+                        cbuf["label_counts"].most_common(1)[0][0]
+                        if cbuf["label_counts"]
+                        else "object"
+                    )
+                    lbl_ok = (cand_lbl == label) or (cand_lbl in bag_family and label in bag_family)
+                    if not lbl_ok:
+                        continue
+                    pcx, pcy = _bbox_center(cbuf.get("last_bbox", cbuf["best_bbox"]))
+                    if (math.hypot(ccx - pcx, ccy - pcy) / frame_diag) <= self.stitch_dist_ratio:
+                        if gap < best_gap:
+                            best_gap = gap
+                            obj_id = cand_id
+                if obj_id != raw_id:
+                    self._id_alias[raw_id] = obj_id
+                    raw_present_canonical.add(obj_id)
+            else:
+                obj_id = raw_id
 
             ix1, iy1 = max(0, int(x1)), max(0, int(y1))
             ix2, iy2 = min(w, int(x2)), min(h, int(y2))
@@ -241,6 +297,7 @@ class ObjectTracker:
             buf = self.active_buffers[obj_id]
             buf["end_frame"] = frame_id
             buf["end_sec"] = timestamp
+            buf["last_bbox"] = bbox
             buf["frame_count"] += 1
             buf["label_counts"][label] += 1
             dominant_label = buf["label_counts"].most_common(1)[0][0]
@@ -249,6 +306,13 @@ class ObjectTracker:
                 buf["best_quality"] = quality
                 buf["best_crop"] = crop.copy()
                 buf["best_bbox"] = bbox
+
+            # Compute displacement early so opt-in motion_owner_weight can boost moving carriers
+            acx, acy = _bbox_center(buf["stationary_anchor"])
+            ccx, ccy = _bbox_center(bbox)
+            disp_ratio = math.hypot(ccx - acx, ccy - acy) / frame_diag
+            is_moving_now = disp_ratio > self.movement_threshold_ratio
+            owner_weight = 2.5 if (self.motion_owner_weight and is_moving_now) else 1.0
 
             # 1. Person-Object Proximity / Carrier Binding
             any_person_near = False
@@ -262,7 +326,7 @@ class ObjectTracker:
                 )
                 if score > 0.0:
                     any_person_near = True
-                    buf["owner_scores"][pid] = buf["owner_scores"].get(pid, 0.0) + score
+                    buf["owner_scores"][pid] = buf["owner_scores"].get(pid, 0.0) + (score * owner_weight)
                     if pc.get("crop_path"):
                         buf["owner_crop_paths"][pid] = pc["crop_path"]
 
@@ -272,10 +336,6 @@ class ObjectTracker:
                 buf["owner_crop_path"] = buf["owner_crop_paths"].get(best_owner, "")
 
             # 2. Stationary + Unattended Abandonment State Machine
-            acx, acy = _bbox_center(buf["stationary_anchor"])
-            ccx, ccy = _bbox_center(bbox)
-            disp_ratio = math.hypot(ccx - acx, ccy - acy) / frame_diag
-
             move_th = 0.08 if buf["status"] == "abandoned" else self.movement_threshold_ratio
             if disp_ratio > move_th:
                 # Object moved noticeably -> reset stationary timer
@@ -342,11 +402,34 @@ class ObjectTracker:
                     "best_crop": buf["best_crop"].copy(),
                 })
 
+        self._last_active_ids = {int(o["object_id"]) for o in active_objects}
         return active_objects, newly_confirmed, newly_abandoned
+
+    def get_recently_lost_rois(
+        self,
+        timestamp: float,
+        min_age_sec: float = 0.25,
+        max_age_sec: float = 6.0,
+        max_rois: int = 3,
+    ) -> List[List[float]]:
+        """
+        Returns last known bboxes for recently lost object tracks so ObjectDetector
+        can run zoomed-in ROI checks on small stationary items (e.g. floor bags).
+        """
+        rois = []
+        for obj_id, buf in self.active_buffers.items():
+            if obj_id in self._last_active_ids:
+                continue
+            age = timestamp - buf["end_sec"]
+            if min_age_sec <= age <= max_age_sec:
+                rois.append((age, buf.get("last_bbox", buf["best_bbox"])))
+        rois.sort(key=lambda x: x[0])
+        return [r[1] for r in rois[:max_rois]]
 
     def get_all_indexed_objects(self) -> List[dict]:
         """Returns final state snapshot for every indexed object track at end of video."""
         results = []
+        end_unattended_min = min(2.0, 0.5 * self.abandon_seconds)
         for obj_id, buf in self.active_buffers.items():
             if not buf["indexed"]:
                 continue
@@ -355,13 +438,23 @@ class ObjectTracker:
                 if buf["label_counts"]
                 else "object"
             )
+            final_status = buf["status"]
+            ab_since = float(buf["abandoned_since_sec"])
+            if final_status == "stationary":
+                unattended_start = max(buf["stationary_since_sec"], buf["last_attended_sec"])
+                unattended_dur = max(0.0, float(buf["end_sec"]) - unattended_start)
+                if unattended_dur >= end_unattended_min:
+                    final_status = "unattended_at_end"
+                    if ab_since < 0:
+                        ab_since = unattended_start
+
             results.append({
                 "object_id": str(obj_id),
                 "label": dominant_label,
                 "owner_track_id": buf["owner_track_id"] or "Unknown",
                 "owner_crop_path": buf["owner_crop_path"],
-                "status": buf["status"],
-                "abandoned_since_sec": float(buf["abandoned_since_sec"]),
+                "status": final_status,
+                "abandoned_since_sec": ab_since,
                 "start_sec": float(buf["start_sec"]),
                 "end_sec": float(buf["end_sec"]),
                 "start_frame": int(buf["start_frame"]),

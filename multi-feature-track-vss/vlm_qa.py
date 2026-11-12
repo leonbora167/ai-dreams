@@ -688,8 +688,11 @@ def main():
     elif route == "object_ownership":
         search_vec = image_vec if image_vec is not None else text_vec
         object_records = vector_db.search_objects_by_vector(search_vec, top_k=max(args.top_k, 5))
-        # Always include explicitly abandoned objects for unattended/abandoned queries
-        abandoned = [o for o in vector_db.get_all_objects() if o.get("status") == "abandoned"]
+        # Always include explicitly abandoned or unattended-at-end objects for unattended/abandoned queries
+        abandoned = [
+            o for o in vector_db.get_all_objects()
+            if o.get("status") in ("abandoned", "unattended_at_end")
+        ]
         seen_obj_ids = {str(o.get("object_id")) for o in object_records}
         for ab in abandoned:
             if str(ab.get("object_id")) not in seen_obj_ids:

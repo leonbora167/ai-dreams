@@ -37,7 +37,8 @@ flowchart TD
    - Tracks people with YOLOv8n + ByteTrack across occlusions and camera re-entries using fused **MSMT17 OSNet-AIN (`osnet_ain_x1_0`)** appearance embeddings, **InsightFace SCRFD + ArcFace** top-5 crop face embeddings, and **YOLOv8n-pose** (`standing`/`sitting`) estimation.
 2. **Open-Vocabulary Object Tracking, Ownership Binding & Abandonment Alerts (`object_tracks`) — Phase 1:**
    - Runs a separate **`YOLOWorld` (`yolov8s-worldv2.pt`)** detector (leaving `detector.py` unchanged) for user-prompted classes (`--track-objects "bag, backpack, handbag, suitcase, water bottle"`).
-   - Binds each tracked object to its carrier/owner (`owner_track_id`, resolved to Global Person ID) and monitors stationary unattended duration against `--abandon-seconds` to flag abandoned items with an evidence scene frame.
+   - Binds each tracked object to its carrier/owner (`owner_track_id`, resolved to Global Person ID) and monitors stationary unattended duration against `--abandon-seconds` to flag `abandoned` items (or `unattended_at_end` if left unattended near the end of a clip) with an evidence scene frame.
+   - Uses FPS-scaled tracking buffers + spatial/bag-family track stitching + zoomed ROI re-checks on recently lost objects by default, with opt-in flags `--tile-objects` (2x2 tiled YOLO-World for 4K wide scenes), `--multi-angle-reid` (up to 5 isolated-track OSNet vectors), and `--motion-owner-weight` (2.5x owner proximity weight while moving).
 3. **General Spatial-Windowed Video Summarization (`video_events`) — Phase 2:**
    - Divides the timeline into periodic + event-triggered windows (`--summarize`), draws `[ID:X]` and `[OBJ:Y]` tags in RAM, slices **non-empty overlapping 2x2 spatial quadrants** to capture fine-grained auditorium/classroom actions without overflowing 2B-model resolution, rolls tile notes into `[ID:X]`-tagged summaries, and indexes sentence-pooled SigLIP vectors into `video_events`.
 4. **5-Route Semantic Q&A (`vlm_qa.py`) & Multi-Modal Search (`search_engine.py`):**
@@ -62,6 +63,7 @@ flowchart TD
 | [vector_store.py](file:///c:/Projects/ai-dreams/multi-feature-track-vss/vector_store.py) | LanceDB manager for `person_tracks`, `scene_frames`, `object_tracks`, and `video_events`. |
 | [search_engine.py](file:///c:/Projects/ai-dreams/multi-feature-track-vss/search_engine.py) | Vector similarity search CLI across people, faces, objects/clips, scene keyframes, and video event chunks. |
 | [vlm_qa.py](file:///c:/Projects/ai-dreams/multi-feature-track-vss/vlm_qa.py) | 5-route semantic RAG + VLM inference CLI (`InternVL3-2B-hf`, `SmolVLM2`, `Phi-4`, `Llama-3.2`, or remote vLLM/NIM/Ollama). |
+| [visualize_db.py](file:///c:/Projects/ai-dreams/multi-feature-track-vss/visualize_db.py) | Local FastAPI web GUI for management/operators to visually browse LanceDB persons, objects, abandonment alerts, keyframes, and event timelines. |
 | [download_sample.py](file:///c:/Projects/ai-dreams/multi-feature-track-vss/download_sample.py) | Sample clip downloader supporting `--preset sample | abandoned_bag | classroom | bottle | all`. |
 
 ---
@@ -86,6 +88,9 @@ python pipeline.py --video data/raw_videos/abandoned_bag.mp4 ^
   --track-objects "bag, backpack, handbag, suitcase" ^
   --abandon-seconds 3.0 ^
   --db-path data/lancedb_bag
+
+# Optional flags for 4K / multi-angle / heavy-crowd scenarios (default OFF):
+#   --tile-objects --multi-angle-reid --motion-owner-weight
 ```
 
 **Phase 1 + Phase 2: Full Video Search, Object Tracking & Spatial-Window Summarization (`InternVL3-2B-hf`):**
